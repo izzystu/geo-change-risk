@@ -1,0 +1,18 @@
+# Paradise AOI data download and initialization dependencies
+
+# HTTP requests
+requests>=2.31.0
+
+# Geospatial processing
+geopandas>=0.14.0
+shapely>=2.0.0
+pyproj>=3.6.0  # Required for coordinate transformation (Web Mercator to WGS84)
+
+# Data formats
+geojson>=3.1.0
+
+# Progress bars
+tqdm>=4.66.0
+
+# Environment variables
+python-dotenv>=1.0.0

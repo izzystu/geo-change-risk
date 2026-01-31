@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Entity Framework Core -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- Configuration (for DesignTimeDbContextFactory) -->
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.1" />
+
+    <!-- PostgreSQL with PostGIS support -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL.NetTopologySuite" Version="8.0.11" />
+
+    <!-- NetTopologySuite for spatial types -->
+    <PackageReference Include="NetTopologySuite" Version="2.5.0" />
+    <PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
+  </ItemGroup>
+
+</Project>

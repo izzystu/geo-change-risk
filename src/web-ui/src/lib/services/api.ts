@@ -1,0 +1,340 @@
+import { PUBLIC_API_URL } from '$env/static/public';
+
+const API_BASE = PUBLIC_API_URL || 'http://localhost:5074';
+
+export interface AreaOfInterestSummary {
+	aoiId: string;
+	name: string;
+	assetCount: number;
+}
+
+export interface AreaOfInterest {
+	aoiId: string;
+	name: string;
+	description?: string;
+	boundingBox: [number, number, number, number]; // [minX, minY, maxX, maxY]
+	center: [number, number];
+	assetCount: number;
+	createdAt: string;
+}
+
+export interface Asset {
+	id: number;
+	areaOfInterestId: number;
+	name: string;
+	assetType: number;
+	criticality: number;
+	geometry: GeoJSON.Geometry;
+	properties?: Record<string, unknown>;
+	sourceDataset?: string;
+	sourceFeatureId?: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface AssetGeoJSON {
+	type: 'FeatureCollection';
+	features: GeoJSON.Feature[];
+}
+
+export interface ImageryFile {
+	fileName: string;
+	objectPath: string;
+	size: number;
+	lastModified: string;
+}
+
+export interface ImageryScene {
+	sceneId: string;
+	aoiId: string;
+	files: ImageryFile[];
+	lastModified: string;
+}
+
+export interface ImageryFileWithUrl extends ImageryFile {
+	presignedUrl: string;
+}
+
+export interface ImagerySceneDetail {
+	sceneId: string;
+	aoiId: string;
+	bounds: [number, number, number, number];
+	files: ImageryFileWithUrl[];
+	/** Presigned URL for web display (PNG preferred over TIF) */
+	displayUrl?: string;
+	lastModified: string;
+}
+
+export interface ImageryUploadResult {
+	objectPath: string;
+	size: number;
+	presignedUrl: string;
+	message: string;
+}
+
+// Processing types
+export interface ProcessingRunSummary {
+	runId: string;
+	aoiId: string;
+	statusName: string;
+	beforeDate: string;
+	afterDate: string;
+	createdAt: string;
+	changePolygonCount: number;
+}
+
+export interface ProcessingRun extends ProcessingRunSummary {
+	status: number;
+	beforeSceneId?: string;
+	afterSceneId?: string;
+	startedAt?: string;
+	completedAt?: string;
+	errorMessage?: string;
+	metadata?: Record<string, unknown>;
+	riskEventCount: number;
+}
+
+export interface CreateProcessingRunRequest {
+	aoiId: string;
+	beforeDate: string;
+	afterDate: string;
+	parameters?: Record<string, unknown>;
+}
+
+// Risk event types
+export interface RiskEventSummary {
+	riskEventId: string;
+	assetId: string;
+	assetName: string;
+	assetTypeName: string;
+	riskScore: number;
+	riskLevelName: string;
+	distanceMeters: number;
+	createdAt: string;
+	isAcknowledged: boolean;
+}
+
+export interface RiskEvent extends RiskEventSummary {
+	changePolygonId: string;
+	riskLevel: number;
+	scoringFactors?: Record<string, unknown>;
+	notificationSentAt?: string;
+	acknowledgedAt?: string;
+	acknowledgedBy?: string;
+	aoiId?: string;
+	changeGeometry?: GeoJSON.Geometry;
+	assetGeometry?: GeoJSON.Geometry;
+}
+
+export interface RiskEventStats {
+	aoiId: string;
+	totalEvents: number;
+	unacknowledgedEvents: number;
+	byRiskLevel: Record<string, number>;
+}
+
+export const RiskLevelColors: Record<string, string> = {
+	'Low': '#22c55e',      // green
+	'Medium': '#f59e0b',   // amber
+	'High': '#f97316',     // orange
+	'Critical': '#ef4444'  // red
+};
+
+export const AssetTypeLabels: Record<number, string> = {
+	0: 'Transmission Line',
+	1: 'Substation',
+	2: 'Gas Pipeline',
+	3: 'Building',
+	4: 'Road',
+	5: 'Fire Station',
+	6: 'Hospital',
+	7: 'School',
+	8: 'Water Infrastructure',
+	99: 'Other'
+};
+
+export const CriticalityLabels: Record<number, string> = {
+	0: 'Low',
+	1: 'Medium',
+	2: 'High',
+	3: 'Critical'
+};
+
+export const CriticalityColors: Record<number, string> = {
+	0: '#22c55e', // green
+	1: '#f59e0b', // amber
+	2: '#f97316', // orange
+	3: '#ef4444'  // red
+};
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+	const response = await fetch(url, {
+		...options,
+		headers: {
+			'Content-Type': 'application/json',
+			...options?.headers
+		}
+	});
+
+	if (!response.ok) {
+		throw new Error(`API error: ${response.status} ${response.statusText}`);
+	}
+
+	return response.json();
+}
+
+export const api = {
+	// Health check
+	async getHealth(): Promise<{ status: string; database: string }> {
+		return fetchJson(`${API_BASE}/api/system/health`);
+	},
+
+	// Areas of Interest
+	async getAreasOfInterest(): Promise<AreaOfInterestSummary[]> {
+		return fetchJson(`${API_BASE}/api/areas-of-interest`);
+	},
+
+	async getAreaOfInterest(id: string): Promise<AreaOfInterest> {
+		return fetchJson(`${API_BASE}/api/areas-of-interest/${id}`);
+	},
+
+	// Assets
+	async getAssets(aoiId: string): Promise<Asset[]> {
+		return fetchJson(`${API_BASE}/api/assets?aoiId=${aoiId}`);
+	},
+
+	async getAssetsGeoJSON(aoiId: string, assetTypes?: number[]): Promise<AssetGeoJSON> {
+		let url = `${API_BASE}/api/assets/geojson?aoiId=${aoiId}`;
+		if (assetTypes && assetTypes.length > 0) {
+			url += `&assetTypes=${assetTypes.join(',')}`;
+		}
+		return fetchJson(url);
+	},
+
+	async getAsset(id: number): Promise<Asset> {
+		return fetchJson(`${API_BASE}/api/assets/${id}`);
+	},
+
+	// Imagery
+	async getImageryScenes(aoiId: string): Promise<ImageryScene[]> {
+		return fetchJson(`${API_BASE}/api/imagery/${aoiId}`);
+	},
+
+	async getImageryScene(aoiId: string, sceneId: string): Promise<ImagerySceneDetail> {
+		return fetchJson(`${API_BASE}/api/imagery/${aoiId}/${sceneId}`);
+	},
+
+	async uploadImagery(aoiId: string, sceneId: string, file: File, fileName?: string): Promise<ImageryUploadResult> {
+		const formData = new FormData();
+		formData.append('file', file);
+
+		let url = `${API_BASE}/api/imagery/${aoiId}/upload?sceneId=${encodeURIComponent(sceneId)}`;
+		if (fileName) {
+			url += `&fileName=${encodeURIComponent(fileName)}`;
+		}
+
+		const response = await fetch(url, {
+			method: 'POST',
+			body: formData
+		});
+
+		if (!response.ok) {
+			throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+		}
+
+		return response.json();
+	},
+
+	async deleteImageryScene(aoiId: string, sceneId: string): Promise<void> {
+		const response = await fetch(`${API_BASE}/api/imagery/${aoiId}/${sceneId}`, {
+			method: 'DELETE'
+		});
+
+		if (!response.ok) {
+			throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
+		}
+	},
+
+	// Processing runs
+	async getProcessingRuns(aoiId: string): Promise<ProcessingRunSummary[]> {
+		return fetchJson(`${API_BASE}/api/processing/runs?aoiId=${aoiId}`);
+	},
+
+	async getProcessingRun(runId: string): Promise<ProcessingRun> {
+		return fetchJson(`${API_BASE}/api/processing/runs/${runId}`);
+	},
+
+	async createProcessingRun(request: CreateProcessingRunRequest): Promise<ProcessingRun> {
+		return fetchJson(`${API_BASE}/api/processing/runs`, {
+			method: 'POST',
+			body: JSON.stringify(request)
+		});
+	},
+
+	async getChangesGeoJSON(aoiId: string, runId?: string): Promise<AssetGeoJSON> {
+		let url = `${API_BASE}/api/changes/geojson?aoiId=${aoiId}`;
+		if (runId) {
+			url += `&runId=${runId}`;
+		}
+		return fetchJson(url);
+	},
+
+	// Risk events
+	async getRiskEvents(params: {
+		aoiId?: string;
+		minScore?: number;
+		riskLevel?: number;
+		limit?: number;
+	} = {}): Promise<RiskEventSummary[]> {
+		const searchParams = new URLSearchParams();
+		if (params.aoiId) searchParams.set('aoiId', params.aoiId);
+		if (params.minScore !== undefined) searchParams.set('minScore', params.minScore.toString());
+		if (params.riskLevel !== undefined) searchParams.set('riskLevel', params.riskLevel.toString());
+		if (params.limit) searchParams.set('limit', params.limit.toString());
+
+		return fetchJson(`${API_BASE}/api/risk-events?${searchParams}`);
+	},
+
+	async getRiskEvent(id: string): Promise<RiskEvent> {
+		return fetchJson(`${API_BASE}/api/risk-events/${id}`);
+	},
+
+	async getRiskEventsByAsset(assetId: string): Promise<RiskEventSummary[]> {
+		return fetchJson(`${API_BASE}/api/risk-events/by-asset/${assetId}`);
+	},
+
+	async getUnacknowledgedEvents(aoiId?: string, minLevel?: number): Promise<RiskEventSummary[]> {
+		const searchParams = new URLSearchParams();
+		if (aoiId) searchParams.set('aoiId', aoiId);
+		if (minLevel !== undefined) searchParams.set('minLevel', minLevel.toString());
+
+		return fetchJson(`${API_BASE}/api/risk-events/unacknowledged?${searchParams}`);
+	},
+
+	async acknowledgeRiskEvent(id: string, acknowledgedBy: string, notes?: string): Promise<RiskEvent> {
+		return fetchJson(`${API_BASE}/api/risk-events/${id}/acknowledge`, {
+			method: 'POST',
+			body: JSON.stringify({ acknowledgedBy, notes })
+		});
+	},
+
+	async getRiskEventStats(aoiId: string): Promise<RiskEventStats> {
+		return fetchJson(`${API_BASE}/api/risk-events/stats?aoiId=${aoiId}`);
+	},
+
+	// Delete processing run
+	async deleteProcessingRun(runId: string): Promise<void> {
+		const response = await fetch(`${API_BASE}/api/processing/runs/${runId}`, {
+			method: 'DELETE'
+		});
+
+		if (!response.ok) {
+			throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
+		}
+	},
+
+	// Get change polygons GeoJSON for a specific run
+	async getRunChangesGeoJson(runId: string): Promise<AssetGeoJSON> {
+		return fetchJson(`${API_BASE}/api/processing/runs/${runId}/changes/geojson`);
+	}
+};

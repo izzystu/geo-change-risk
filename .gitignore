@@ -1,0 +1,134 @@
+# Geo Change Risk Platform - Git Ignore
+
+# =============================================================================
+# Environment and Secrets (NEVER commit these)
+# =============================================================================
+.env
+*.env.local
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+
+# =============================================================================
+# .NET
+# =============================================================================
+bin/
+obj/
+*.user
+*.userosscache
+*.suo
+*.cache
+*.log
+.vs/
+*.nupkg
+project.lock.json
+*.nuget.props
+*.nuget.targets
+
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+.eggs/
+*.egg-info/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# =============================================================================
+# Node.js / Web UI
+# =============================================================================
+node_modules/
+.svelte-kit/
+build/
+dist/
+.output/
+.nuxt/
+.cache/
+*.tsbuildinfo
+
+# =============================================================================
+# IDE and Editors
+# =============================================================================
+.idea/
+.vscode/
+.claude/settings.local.json
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# =============================================================================
+# OS Generated
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# =============================================================================
+# Areas of Interest - Downloaded Data
+# =============================================================================
+areas-of-interest/*/data/
+areas-of-interest/*/*.geojson
+areas-of-interest/*/*.shp
+areas-of-interest/*/*.shx
+areas-of-interest/*/*.dbf
+areas-of-interest/*/*.prj
+
+# =============================================================================
+# Machine Learning
+# =============================================================================
+machine-learning/models/*.pt
+machine-learning/models/*.pth
+machine-learning/models/*.onnx
+machine-learning/data/
+*.h5
+*.hdf5
+
+# =============================================================================
+# Raster and GIS Data
+# =============================================================================
+*.tif
+*.tiff
+*.geotiff
+*.jp2
+*.img
+*.hdr
+
+# =============================================================================
+# Logs and Temporary Files
+# =============================================================================
+logs/
+*.log
+tmp/
+temp/
+.temp/
+
+# =============================================================================
+# Debug/Output Files
+# =============================================================================
+*.output
+api-output.txt
+
+# =============================================================================
+# Docker (local volumes are managed by docker-compose)
+# =============================================================================
+# Don't ignore docker-compose.yml or Dockerfiles

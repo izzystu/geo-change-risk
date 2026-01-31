@@ -1,0 +1,444 @@
+#!/usr/bin/env pwsh
+# Geo Change Risk Platform - Local Development Setup Script (Windows/PowerShell)
+# Usage: .\setup.ps1 [-SkipPrerequisites] [-Force]
+
+param(
+    [switch]$SkipPrerequisites,
+    [switch]$SkipEnv,
+    [switch]$Force,
+    [switch]$Help
+)
+
+$ErrorActionPreference = "Stop"
+$RepoRoot = (Get-Item $PSScriptRoot).Parent.Parent.FullName
+$InfraPath = Join-Path $RepoRoot "infra\local"
+$EnvExamplePath = Join-Path $InfraPath ".env.example"
+$EnvPath = Join-Path $InfraPath ".env"
+$DockerComposePath = Join-Path $InfraPath "docker-compose.yml"
+
+# Colors for output
+function Write-Info { param($Message) Write-Host "[INFO] $Message" -ForegroundColor Cyan }
+function Write-Success { param($Message) Write-Host "[OK] $Message" -ForegroundColor Green }
+function Write-Warn { param($Message) Write-Host "[WARN] $Message" -ForegroundColor Yellow }
+function Write-Err { param($Message) Write-Host "[ERROR] $Message" -ForegroundColor Red }
+
+function Show-Help {
+    Write-Host @"
+Geo Change Risk Platform - Local Development Setup
+
+Usage: .\setup.ps1 [options]
+
+Options:
+    -SkipPrerequisites    Skip prerequisite checks
+    -SkipEnv              Skip .env generation (use existing .env file)
+    -Force                Force recreation of containers
+    -Help                 Show this help message
+
+Prerequisites:
+    - Docker Desktop (running)
+    - .NET 8 SDK
+    - Python 3.11+
+    - Node.js 18+
+
+This script will:
+    1. Check prerequisites
+    2. Generate .env with random credentials (if not exists)
+    3. Generate app config files (appsettings.Development.json, pipeline .env)
+    4. Start PostgreSQL/PostGIS and MinIO containers
+    5. Wait for services to be healthy
+    6. Create MinIO buckets
+
+Using existing credentials:
+    If you already have PostgreSQL/MinIO running or want custom credentials:
+    1. Copy infra\local\.env.example to infra\local\.env
+    2. Edit .env with your credentials and ports
+    3. Run: .\setup.ps1 -SkipEnv
+
+"@
+}
+
+function Test-Command {
+    param($Command)
+    $null = Get-Command $Command -ErrorAction SilentlyContinue
+    return $?
+}
+
+function New-RandomPassword {
+    param([int]$Length = 24)
+    $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    $password = -join ((1..$Length) | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
+    return $password
+}
+
+function Test-Prerequisites {
+    Write-Info "Checking prerequisites..."
+    $failed = $false
+
+    # Docker
+    if (Test-Command "docker") {
+        $dockerVersion = docker --version
+        Write-Success "Docker: $dockerVersion"
+
+        # Check if Docker is running (temporarily allow errors)
+        $prevErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        $dockerInfo = docker info 2>&1 | Out-String
+        $dockerExitCode = $LASTEXITCODE
+        $ErrorActionPreference = $prevErrorAction
+
+        if ($dockerExitCode -eq 0 -and $dockerInfo -notmatch "error during connect") {
+            Write-Success "Docker daemon is running"
+        } else {
+            Write-Err "Docker daemon is not running. Please start Docker Desktop and wait for it to fully initialize."
+            $failed = $true
+        }
+    } else {
+        Write-Err "Docker is not installed. Please install Docker Desktop."
+        $failed = $true
+    }
+
+    # .NET SDK
+    if (Test-Command "dotnet") {
+        $dotnetVersion = dotnet --version
+        Write-Success ".NET SDK: $dotnetVersion"
+        if ([version]$dotnetVersion -lt [version]"8.0.0") {
+            Write-Warn ".NET 8.0+ recommended, found $dotnetVersion"
+        }
+    } else {
+        Write-Err ".NET SDK is not installed. Please install .NET 8 SDK."
+        $failed = $true
+    }
+
+    # Python
+    if (Test-Command "python") {
+        $pythonVersion = python --version 2>&1
+        Write-Success "Python: $pythonVersion"
+    } elseif (Test-Command "python3") {
+        $pythonVersion = python3 --version 2>&1
+        Write-Success "Python: $pythonVersion"
+    } else {
+        Write-Warn "Python is not installed. Required for AOI data scripts."
+    }
+
+    # Node.js
+    if (Test-Command "node") {
+        $nodeVersion = node --version
+        Write-Success "Node.js: $nodeVersion"
+    } else {
+        Write-Warn "Node.js is not installed. Required for Web UI."
+    }
+
+    if ($failed) {
+        Write-Err "Prerequisites check failed. Please install missing dependencies."
+        exit 1
+    }
+    Write-Success "All prerequisites satisfied"
+}
+
+function Initialize-EnvFile {
+    Write-Info "Checking environment file..."
+
+    if (-not (Test-Path $EnvPath)) {
+        Write-Info "Generating .env with random credentials..."
+
+        # Generate random passwords
+        $pgPassword = New-RandomPassword
+        $minioPassword = New-RandomPassword
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
+
+        # Create .env file with generated passwords
+        $envContent = @"
+# Geo Change Risk Platform - Local Environment Configuration
+# Generated by setup script on $timestamp
+#
+# DO NOT commit this file to version control
+
+# =============================================================================
+# PostgreSQL / PostGIS
+# =============================================================================
+POSTGRES_USER=gis
+POSTGRES_PASSWORD=$pgPassword
+POSTGRES_DB=georisk
+POSTGRES_PORT=5432
+
+# =============================================================================
+# MinIO (S3-compatible Object Storage)
+# =============================================================================
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=$minioPassword
+MINIO_API_PORT=9000
+MINIO_CONSOLE_PORT=9001
+
+# =============================================================================
+# API Configuration
+# =============================================================================
+API_PORT=5074
+
+# =============================================================================
+# Web UI Configuration
+# =============================================================================
+WEB_UI_PORT=5173
+"@
+
+        Set-Content -Path $EnvPath -Value $envContent -Encoding UTF8
+        Write-Success "Generated $EnvPath with random credentials"
+    } else {
+        Write-Success ".env file already exists (keeping existing credentials)"
+    }
+}
+
+function Initialize-AppConfigs {
+    Write-Info "Generating application config files..."
+
+    # Read credentials from .env
+    $envVars = @{}
+    $envLines = Get-Content $EnvPath | Where-Object { $_ -match '=' -and $_ -notmatch '^\s*#' }
+    foreach ($line in $envLines) {
+        $parts = $line -split '=', 2
+        if ($parts.Length -eq 2) {
+            $envVars[$parts[0].Trim()] = $parts[1].Trim()
+        }
+    }
+
+    $pgUser = if ($envVars['POSTGRES_USER']) { $envVars['POSTGRES_USER'] } else { "gis" }
+    $pgPass = $envVars['POSTGRES_PASSWORD']
+    $pgDb = if ($envVars['POSTGRES_DB']) { $envVars['POSTGRES_DB'] } else { "georisk" }
+    $pgPort = if ($envVars['POSTGRES_PORT']) { $envVars['POSTGRES_PORT'] } else { "5432" }
+    $minioUser = if ($envVars['MINIO_ROOT_USER']) { $envVars['MINIO_ROOT_USER'] } else { "minioadmin" }
+    $minioPass = $envVars['MINIO_ROOT_PASSWORD']
+    $minioPort = if ($envVars['MINIO_API_PORT']) { $envVars['MINIO_API_PORT'] } else { "9000" }
+
+    # Generate appsettings.Development.json for .NET API
+    $appsettingsPath = Join-Path $RepoRoot "src\api\GeoChangeRisk.Api\appsettings.Development.json"
+    if (-not (Test-Path $appsettingsPath)) {
+        $appsettingsContent = @"
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Debug",
+      "Microsoft.AspNetCore": "Information",
+      "Microsoft.EntityFrameworkCore.Database.Command": "Information"
+    }
+  },
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Port=$pgPort;Database=$pgDb;Username=$pgUser;Password=$pgPass;SSL Mode=Disable"
+  },
+  "MinIO": {
+    "AccessKey": "$minioUser",
+    "SecretKey": "$minioPass"
+  },
+  "Python": {
+    "Executable": "$($RepoRoot -replace '\\', '\\')\\src\\pipeline\\.venv\\Scripts\\python.exe",
+    "PipelineDir": "$($RepoRoot -replace '\\', '\\')\\src\\pipeline"
+  }
+}
+"@
+        Set-Content -Path $appsettingsPath -Value $appsettingsContent -Encoding UTF8
+        Write-Success "Generated $appsettingsPath"
+    } else {
+        Write-Success "appsettings.Development.json already exists (keeping existing)"
+    }
+
+    # Generate .env for Python pipeline
+    $pipelineEnvPath = Join-Path $RepoRoot "src\pipeline\.env"
+    if (-not (Test-Path $pipelineEnvPath)) {
+        $pipelineEnvContent = @"
+# Generated by setup script - DO NOT commit to version control
+MINIO_ENDPOINT=localhost:$minioPort
+MINIO_ACCESS_KEY=$minioUser
+MINIO_SECRET_KEY=$minioPass
+"@
+        Set-Content -Path $pipelineEnvPath -Value $pipelineEnvContent -Encoding UTF8
+        Write-Success "Generated $pipelineEnvPath"
+    } else {
+        Write-Success "Pipeline .env already exists (keeping existing)"
+    }
+}
+
+function Start-Infrastructure {
+    Write-Info "Starting infrastructure services..."
+
+    Push-Location $InfraPath
+    try {
+        if ($Force) {
+            Write-Info "Force flag set - recreating containers..."
+            docker-compose down -v
+        }
+
+        docker-compose up -d
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "Failed to start docker-compose services"
+            exit 1
+        }
+        Write-Success "Docker containers started"
+    } finally {
+        Pop-Location
+    }
+}
+
+function Wait-ForServices {
+    param(
+        [int]$TimeoutSeconds = 60,
+        [int]$RetryIntervalSeconds = 5
+    )
+
+    Write-Info "Waiting for services to be healthy (timeout: ${TimeoutSeconds}s)..."
+
+    $elapsed = 0
+    $postgresReady = $false
+    $minioReady = $false
+
+    while ($elapsed -lt $TimeoutSeconds) {
+        # Check PostgreSQL
+        if (-not $postgresReady) {
+            $pgHealth = docker inspect --format='{{.State.Health.Status}}' georisk-postgres 2>$null
+            if ($pgHealth -eq "healthy") {
+                Write-Success "PostgreSQL is healthy"
+                $postgresReady = $true
+            }
+        }
+
+        # Check MinIO
+        if (-not $minioReady) {
+            $minioHealth = docker inspect --format='{{.State.Health.Status}}' georisk-minio 2>$null
+            if ($minioHealth -eq "healthy") {
+                Write-Success "MinIO is healthy"
+                $minioReady = $true
+            }
+        }
+
+        if ($postgresReady -and $minioReady) {
+            Write-Success "All services are healthy"
+            return
+        }
+
+        Start-Sleep -Seconds $RetryIntervalSeconds
+        $elapsed += $RetryIntervalSeconds
+        Write-Host "." -NoNewline
+    }
+
+    Write-Host ""
+    if (-not $postgresReady) { Write-Err "PostgreSQL did not become healthy in time" }
+    if (-not $minioReady) { Write-Err "MinIO did not become healthy in time" }
+    exit 1
+}
+
+function Initialize-MinioBuckets {
+    Write-Info "Creating MinIO buckets..."
+
+    # Temporarily allow errors for bucket operations
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+
+    # Load env vars
+    $envContent = Get-Content $EnvPath | Where-Object { $_ -match '=' -and $_ -notmatch '^\s*#' }
+    $envVars = @{}
+    foreach ($line in $envContent) {
+        $parts = $line -split '=', 2
+        if ($parts.Length -eq 2) {
+            $envVars[$parts[0].Trim()] = $parts[1].Trim()
+        }
+    }
+
+    $minioUser = if ($envVars['MINIO_ROOT_USER']) { $envVars['MINIO_ROOT_USER'] } else { "minioadmin" }
+    $minioPass = $envVars['MINIO_ROOT_PASSWORD']
+    if (-not $minioPass) {
+        Write-Err "MINIO_ROOT_PASSWORD not found in .env file"
+        return
+    }
+
+    $buckets = @("geo-rasters", "geo-artifacts", "ml-models")
+
+    # Configure mc alias inside container
+    $null = docker exec georisk-minio mc alias set local http://localhost:9000 $minioUser $minioPass 2>&1
+
+    foreach ($bucket in $buckets) {
+        $null = docker exec georisk-minio mc ls local/$bucket 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $null = docker exec georisk-minio mc mb local/$bucket 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Created bucket: $bucket"
+            } else {
+                Write-Warn "Could not create bucket: $bucket"
+            }
+        } else {
+            Write-Success "Bucket already exists: $bucket"
+        }
+    }
+
+    $ErrorActionPreference = $prevErrorAction
+}
+
+function Show-Summary {
+    # Load credentials from .env for display
+    $pgUser = "gis"
+    $pgPass = "<not set>"
+    $minioUser = "minioadmin"
+    $minioPass = "<not set>"
+
+    if (Test-Path $EnvPath) {
+        $envContent = Get-Content $EnvPath
+        foreach ($line in $envContent) {
+            if ($line -match "^POSTGRES_USER=(.+)$") { $pgUser = $Matches[1] }
+            if ($line -match "^POSTGRES_PASSWORD=(.+)$") { $pgPass = $Matches[1] }
+            if ($line -match "^MINIO_ROOT_USER=(.+)$") { $minioUser = $Matches[1] }
+            if ($line -match "^MINIO_ROOT_PASSWORD=(.+)$") { $minioPass = $Matches[1] }
+        }
+    }
+
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host " Local Development Setup Complete!" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Services:"
+    Write-Host "  PostgreSQL/PostGIS: localhost:5432"
+    Write-Host "  MinIO API:          localhost:9000"
+    Write-Host "  MinIO Console:      http://localhost:9001"
+    Write-Host ""
+    Write-Host "Credentials (from $EnvPath):"
+    Write-Host "  PostgreSQL: $pgUser / $pgPass"
+    Write-Host "  MinIO:      $minioUser / $minioPass"
+    Write-Host ""
+    Write-Host "Next Steps:"
+    Write-Host "  1. Run database migrations (after creating API project)"
+    Write-Host "  2. Initialize an Area of Interest"
+    Write-Host ""
+    Write-Host "Useful Commands:"
+    Write-Host "  docker-compose -f infra/local/docker-compose.yml logs -f"
+    Write-Host "  docker-compose -f infra/local/docker-compose.yml down"
+    Write-Host ""
+}
+
+# Main execution
+if ($Help) {
+    Show-Help
+    exit 0
+}
+
+Write-Host ""
+Write-Host "Geo Change Risk Platform - Local Setup" -ForegroundColor Cyan
+Write-Host "=======================================" -ForegroundColor Cyan
+Write-Host ""
+
+if (-not $SkipPrerequisites) {
+    Test-Prerequisites
+}
+
+if ($SkipEnv) {
+    if (-not (Test-Path $EnvPath)) {
+        Write-Err "No .env file found at $EnvPath"
+        Write-Err "Create it from .env.example or remove -SkipEnv flag"
+        exit 1
+    }
+    Write-Success "Using existing .env file"
+} else {
+    Initialize-EnvFile
+}
+
+Initialize-AppConfigs
+Start-Infrastructure
+Wait-ForServices -TimeoutSeconds 60 -RetryIntervalSeconds 5
+Initialize-MinioBuckets
+Show-Summary

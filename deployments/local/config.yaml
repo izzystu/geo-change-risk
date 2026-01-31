@@ -1,0 +1,53 @@
+# Geo Change Risk Platform - Local Deployment Configuration
+# This file contains non-secret configuration for local deployment
+# Secrets should be in .env files (not committed to git)
+
+deployment:
+  name: local
+  environment: development
+
+# Infrastructure paths (relative to repo root)
+infrastructure:
+  docker_compose_path: infra/local/docker-compose.yml
+  env_file_path: infra/local/.env
+
+# Service ports
+ports:
+  postgres: 5432
+  minio_api: 9000
+  minio_console: 9001
+  api: 5074
+  web_ui: 5173
+
+# Health check settings
+health_checks:
+  timeout_seconds: 60
+  retry_interval_seconds: 5
+
+# MinIO bucket configuration
+minio:
+  buckets:
+    - name: geo-rasters
+      description: Raster imagery and processing outputs
+    - name: geo-artifacts
+      description: Pipeline artifacts and provenance data
+    - name: ml-models
+      description: Machine learning model weights
+
+# Database configuration
+database:
+  name: georisk
+  extensions:
+    - postgis
+    - postgis_topology
+
+# Logging
+logging:
+  level: Information
+  format: json
+
+# Feature flags for local development
+features:
+  enable_swagger: true
+  enable_hangfire_dashboard: true
+  seed_sample_data: false

@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Project references -->
+    <ProjectReference Include="..\GeoChangeRisk.Data\GeoChangeRisk.Data.csproj" />
+    <ProjectReference Include="..\GeoChangeRisk.Contracts\GeoChangeRisk.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PostgreSQL -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL.NetTopologySuite" Version="8.0.11" />
+    <PackageReference Include="Npgsql.NetTopologySuite" Version="8.0.6" />
+
+    <!-- GeoJSON serialization -->
+    <PackageReference Include="NetTopologySuite.IO.GeoJSON4STJ" Version="4.0.0" />
+    <PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+
+    <!-- OpenAPI/Swagger -->
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+
+    <!-- Health checks -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.11" />
+
+    <!-- MinIO S3-compatible object storage -->
+    <PackageReference Include="Minio" Version="6.0.3" />
+
+    <!-- EF Core Design for migrations -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- Hangfire for background job processing -->
+    <PackageReference Include="Hangfire.Core" Version="1.8.22" />
+    <PackageReference Include="Hangfire.AspNetCore" Version="1.8.22" />
+    <PackageReference Include="Hangfire.PostgreSql" Version="1.20.13" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,36 @@
+{
+  "aoi_id": "paradise-ca",
+  "name": "Paradise, California (Camp Fire Area)",
+  "description": "2018 Camp Fire impact zone - infrastructure risk analysis for the deadliest and most destructive wildfire in California history",
+  "bbox": {
+    "min_lon": -121.70,
+    "min_lat": 39.70,
+    "max_lon": -121.55,
+    "max_lat": 39.74,
+    "_note": "max_lat reduced from 39.85 to 39.74 to fit within Sentinel-2 tile T10SFJ (see Known Limitations in IMPLEMENTATION-PLAN.md)"
+  },
+  "center": [-121.62, 39.72],
+  "data_sources": {
+    "osm": {
+      "buildings": true,
+      "roads": true,
+      "power_lines": true,
+      "description": "OpenStreetMap via Overpass API"
+    },
+    "cec": {
+      "transmission_lines": true,
+      "substations": true,
+      "description": "California Energy Commission electric infrastructure"
+    },
+    "hifld": {
+      "fire_stations": true,
+      "hospitals": true,
+      "schools": true,
+      "description": "Homeland Infrastructure Foundation-Level Data"
+    },
+    "cal_fire": {
+      "fire_perimeter": true,
+      "description": "CAL FIRE Camp Fire perimeter for context"
+    }
+  }
+}
