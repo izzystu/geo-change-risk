@@ -28,7 +28,14 @@ export const processingError = writable<string | null>(null);
 export const riskEventFilters = writable({
     minScore: 0,
     riskLevel: null as number | null,
+    assetType: null as string | null,
     showAcknowledged: true
+});
+
+// Derived: unique asset type names from current events
+export const assetTypes = derived(riskEvents, ($events) => {
+    const types = new Set($events.map(e => e.assetTypeName));
+    return [...types].sort();
 });
 
 // Derived: filtered risk events
@@ -36,8 +43,10 @@ export const filteredRiskEvents = derived(
     [riskEvents, riskEventFilters],
     ([$events, $filters]) => {
         return $events.filter(event => {
+            if (event.isDismissed) return false;
             if (event.riskScore < $filters.minScore) return false;
             if ($filters.riskLevel !== null && getRiskLevelValue(event.riskLevelName) !== $filters.riskLevel) return false;
+            if ($filters.assetType !== null && event.assetTypeName !== $filters.assetType) return false;
             if (!$filters.showAcknowledged && event.isAcknowledged) return false;
             return true;
         });

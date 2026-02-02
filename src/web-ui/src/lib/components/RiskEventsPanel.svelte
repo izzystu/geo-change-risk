@@ -2,17 +2,28 @@
 	import { selectedAoiId } from '$lib/stores/aoi';
 	import {
 		riskEvents,
+		selectedRunId,
 		unacknowledgedCount,
 		eventsLoading,
 		processingError,
 		filteredRiskEvents,
-		riskEventFilters
+		riskEventFilters,
+		assetTypes
 	} from '$lib/stores/processing';
-	import { api, RiskLevelColors } from '$lib/services/api';
+	import { api, RiskLevelColors, type RiskEvent } from '$lib/services/api';
+	import { parseFactors, generateSummary, generateSuggestedAction, getFactorBarColor } from '$lib/utils/riskSummary';
+	import TakeActionDialog from './TakeActionDialog.svelte';
 
-	export let onEventClick: ((eventId: string) => void) | undefined = undefined;
+	export let onEventClick: ((eventId: string | null) => void) | undefined = undefined;
 
-	let acknowledgingId: string | null = null;
+	let expandedEventId: string | null = null;
+	let expandedEventDetail: RiskEvent | null = null;
+	let dismissingId: string | null = null;
+
+	// Take Action dialog state
+	let actionDialogOpen = false;
+	let actionDialogAssetName = '';
+	let actionDialogRiskLevel = '';
 
 	const riskLevels = [
 		{ value: null, label: 'All' },
@@ -22,22 +33,21 @@
 		{ value: 0, label: 'Low' }
 	];
 
-	// Load events when AOI changes
+	// Load events when AOI or selected run changes
 	$: if ($selectedAoiId) {
-		loadEvents($selectedAoiId);
+		loadEvents($selectedAoiId, $selectedRunId);
 	}
 
-	async function loadEvents(aoiId: string) {
+	async function loadEvents(aoiId: string, runId: string | null) {
 		eventsLoading.set(true);
+		expandedEventId = null;
+		expandedEventDetail = null;
 
 		try {
-			const [events, unackEvents] = await Promise.all([
-				api.getRiskEvents({ aoiId, limit: 500 }),
-				api.getUnacknowledgedEvents(aoiId, 2)  // High+ risk only
-			]);
+			const events = await api.getRiskEvents({ aoiId, runId: runId ?? undefined, limit: 500 });
 
 			riskEvents.set(events);
-			unacknowledgedCount.set(unackEvents.length);
+			unacknowledgedCount.set(events.filter(e => !e.isAcknowledged).length);
 		} catch (err) {
 			console.error('Failed to load risk events:', err);
 			processingError.set('Failed to load risk events');
@@ -63,39 +73,80 @@
 		});
 	}
 
-	function handleEventClick(eventId: string) {
+	async function handleEventClick(eventId: string) {
+		if (expandedEventId === eventId) {
+			expandedEventId = null;
+			expandedEventDetail = null;
+			if (onEventClick) {
+				onEventClick(null);
+			}
+			return;
+		}
+
 		if (onEventClick) {
 			onEventClick(eventId);
 		}
-	}
 
-	async function handleAcknowledge(event: Event, eventId: string) {
-		event.stopPropagation(); // Prevent triggering the zoom click
-		acknowledgingId = eventId;
+		expandedEventId = eventId;
+		expandedEventDetail = null;
 
 		try {
-			await api.acknowledgeRiskEvent(eventId, 'User');
+			expandedEventDetail = await api.getRiskEvent(eventId);
+		} catch (err) {
+			console.error('Failed to load event detail:', err);
+		}
+	}
 
-			// Update the local state
+	function getLandCoverClass(detail: RiskEvent): string | null {
+		const factors = detail.scoringFactors?.factors as Array<{ reason_code: string; details: string }> | undefined;
+		if (!factors) return null;
+		const lc = factors.find(f => f.reason_code?.startsWith('LANDCOVER_'));
+		if (!lc?.details) return null;
+		const match = lc.details.match(/^Land cover: (\S+)/);
+		return match ? match[1] : null;
+	}
+
+	async function handleDismiss(event: Event, eventId: string) {
+		event.stopPropagation();
+		dismissingId = eventId;
+
+		try {
+			await api.dismissRiskEvent(eventId, 'User');
+
 			riskEvents.update(events =>
 				events.map(e =>
-					e.riskEventId === eventId ? { ...e, isAcknowledged: true } : e
+					e.riskEventId === eventId ? { ...e, isDismissed: true } : e
 				)
 			);
-
-			// Decrement unacknowledged count
-			unacknowledgedCount.update(n => Math.max(0, n - 1));
 		} catch (err) {
-			console.error('Failed to acknowledge event:', err);
+			console.error('Failed to dismiss event:', err);
 		} finally {
-			acknowledgingId = null;
+			dismissingId = null;
 		}
+	}
+
+	function handleTakeAction(event: Event, assetName: string, riskLevelName: string) {
+		event.stopPropagation();
+		actionDialogAssetName = assetName;
+		actionDialogRiskLevel = riskLevelName;
+		actionDialogOpen = true;
 	}
 
 	function setRiskLevelFilter(level: number | null) {
 		riskEventFilters.update(f => ({ ...f, riskLevel: level }));
 	}
+
+	function setAssetTypeFilter(type: string | null) {
+		riskEventFilters.update(f => ({ ...f, assetType: type }));
+	}
 </script>
+
+<TakeActionDialog
+	bind:open={actionDialogOpen}
+	assetName={actionDialogAssetName}
+	riskLevelName={actionDialogRiskLevel}
+	onClose={() => { actionDialogOpen = false; }}
+/>
 
 <div class="risk-events-panel">
 	<div class="header">
@@ -130,6 +181,29 @@
 					{/each}
 				</div>
 			</div>
+			{#if $assetTypes.length > 1}
+				<div class="filter-row">
+					<span class="filter-label">Asset Type:</span>
+					<div class="risk-level-buttons">
+						<button
+							class="level-btn"
+							class:active={$riskEventFilters.assetType === null}
+							on:click={() => setAssetTypeFilter(null)}
+						>
+							All
+						</button>
+						{#each $assetTypes as type}
+							<button
+								class="level-btn"
+								class:active={$riskEventFilters.assetType === type}
+								on:click={() => setAssetTypeFilter(type)}
+							>
+								{type}
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
 			<label class="filter-item">
 				<span>Min Score:</span>
 				<input
@@ -155,6 +229,7 @@
 				<button
 					class="event-item"
 					class:acknowledged={event.isAcknowledged}
+					class:expanded={expandedEventId === event.riskEventId}
 					on:click={() => handleEventClick(event.riskEventId)}
 					title="Click to zoom to location"
 				>
@@ -166,18 +241,23 @@
 							{event.riskScore}
 						</span>
 						<span class="risk-level">{event.riskLevelName}</span>
-						{#if event.isAcknowledged}
-							<span class="ack-icon" title="Acknowledged">✓</span>
-						{:else}
+						<div class="header-actions">
 							<button
-								class="ack-btn"
-								title="Mark as acknowledged"
-								disabled={acknowledgingId === event.riskEventId}
-								on:click={(e) => handleAcknowledge(e, event.riskEventId)}
+								class="action-btn act-btn"
+								title="Take action"
+								on:click={(e) => handleTakeAction(e, event.assetName, event.riskLevelName)}
 							>
-								{acknowledgingId === event.riskEventId ? '...' : '✓'}
+								Act
 							</button>
-						{/if}
+							<button
+								class="action-btn dismiss-btn"
+								title="Dismiss"
+								disabled={dismissingId === event.riskEventId}
+								on:click={(e) => handleDismiss(e, event.riskEventId)}
+							>
+								{dismissingId === event.riskEventId ? '...' : '\u00d7'}
+							</button>
+						</div>
 					</div>
 					<div class="event-asset">
 						<span class="asset-name">{event.assetName}</span>
@@ -187,6 +267,47 @@
 						<span class="distance">{formatDistance(event.distanceMeters)}</span>
 						<span class="date">{formatDate(event.createdAt)}</span>
 					</div>
+					{#if expandedEventId === event.riskEventId}
+						<div class="event-expanded">
+							{#if expandedEventDetail}
+								{@const factors = parseFactors(expandedEventDetail.scoringFactors)}
+								{@const summary = generateSummary(factors, event.assetName, event.riskLevelName)}
+								{@const suggestedAction = generateSuggestedAction(event.riskLevelName, factors, event.assetTypeName)}
+								{@const landCover = getLandCoverClass(expandedEventDetail)}
+
+								<p class="summary-text">{summary}</p>
+
+								{#if factors.length > 0}
+									<div class="factor-breakdown">
+										{#each factors as factor}
+											<div class="factor-row">
+												<span class="factor-name">{factor.name}</span>
+												{#if factor.max_points > 0}
+													<div class="factor-bar-track">
+														<div
+															class="factor-bar-fill"
+															style="width: {Math.min(100, (factor.points / factor.max_points) * 100)}%; background-color: {getFactorBarColor(factor)}"
+														></div>
+													</div>
+													<span class="factor-pts">{factor.points}/{factor.max_points}</span>
+												{:else}
+													<span class="factor-detail">{factor.details}</span>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								{/if}
+
+								<p class="suggested-action">{suggestedAction}</p>
+
+								{#if landCover}
+									<span class="detail-tag land-cover">{landCover}</span>
+								{/if}
+							{:else}
+								<span class="detail-loading">Loading...</span>
+							{/if}
+						</div>
+					{/if}
 				</button>
 			{/each}
 
@@ -227,8 +348,8 @@
 	.unack-badge {
 		font-size: 0.625rem;
 		padding: 0.125rem 0.375rem;
-		background: #ef4444;
-		color: white;
+		background: var(--color-border);
+		color: var(--color-text-muted);
 		border-radius: 999px;
 		font-weight: 600;
 	}
@@ -304,6 +425,98 @@
 		opacity: 0.6;
 	}
 
+	.event-item.expanded {
+		border-color: var(--color-text-muted);
+	}
+
+	.event-expanded {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding-top: 0.375rem;
+		border-top: 1px solid var(--color-border);
+	}
+
+	.summary-text {
+		font-size: 0.75rem;
+		color: var(--color-text);
+		line-height: 1.4;
+		margin: 0;
+	}
+
+	.factor-breakdown {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.factor-row {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		font-size: 0.6875rem;
+	}
+
+	.factor-name {
+		min-width: 5.5rem;
+		color: var(--color-text-muted);
+		flex-shrink: 0;
+	}
+
+	.factor-bar-track {
+		flex: 1;
+		height: 0.375rem;
+		background: var(--color-border);
+		border-radius: 2px;
+		overflow: hidden;
+	}
+
+	.factor-bar-fill {
+		height: 100%;
+		border-radius: 2px;
+		transition: width 0.3s ease;
+	}
+
+	.factor-pts {
+		min-width: 2.25rem;
+		text-align: right;
+		color: var(--color-text-muted);
+		font-size: 0.625rem;
+	}
+
+	.factor-detail {
+		flex: 1;
+		color: var(--color-text-muted);
+		font-size: 0.625rem;
+	}
+
+	.suggested-action {
+		font-size: 0.6875rem;
+		color: var(--color-text-muted);
+		font-style: italic;
+		line-height: 1.4;
+		margin: 0;
+	}
+
+	.detail-tag {
+		font-size: 0.625rem;
+		padding: 0.0625rem 0.375rem;
+		border-radius: var(--radius-sm);
+		font-weight: 500;
+		align-self: flex-start;
+	}
+
+	.detail-tag.land-cover {
+		background: #166534;
+		color: white;
+	}
+
+	.detail-loading {
+		font-size: 0.6875rem;
+		color: var(--color-text-muted);
+		font-style: italic;
+	}
+
 	.event-header {
 		display: flex;
 		align-items: center;
@@ -326,35 +539,45 @@
 		color: var(--color-text);
 	}
 
-	.ack-icon {
+	.header-actions {
 		margin-left: auto;
-		color: #22c55e;
-		font-size: 0.75rem;
+		display: flex;
+		gap: 0.25rem;
 	}
 
-	.ack-btn {
-		margin-left: auto;
-		width: 1.5rem;
-		height: 1.5rem;
+	.action-btn {
+		padding: 0.125rem 0.375rem;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--color-border);
 		background: var(--color-surface);
-		color: var(--color-text-muted);
 		cursor: pointer;
-		font-size: 0.75rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		font-size: 0.625rem;
 		transition: all 0.15s ease;
 	}
 
-	.ack-btn:hover:not(:disabled) {
-		background: #22c55e;
-		border-color: #22c55e;
+	.act-btn {
+		color: var(--color-primary, #3b82f6);
+		border-color: var(--color-primary, #3b82f6);
+	}
+
+	.act-btn:hover {
+		background: var(--color-primary, #3b82f6);
 		color: white;
 	}
 
-	.ack-btn:disabled {
+	.dismiss-btn {
+		color: var(--color-text-muted);
+		font-size: 0.75rem;
+		line-height: 1;
+	}
+
+	.dismiss-btn:hover:not(:disabled) {
+		background: #ef4444;
+		border-color: #ef4444;
+		color: white;
+	}
+
+	.dismiss-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}

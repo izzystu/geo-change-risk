@@ -81,6 +81,7 @@ export interface ProcessingRunSummary {
 	afterDate: string;
 	createdAt: string;
 	changePolygonCount: number;
+	riskEventCount: number;
 }
 
 export interface ProcessingRun extends ProcessingRunSummary {
@@ -112,6 +113,7 @@ export interface RiskEventSummary {
 	distanceMeters: number;
 	createdAt: string;
 	isAcknowledged: boolean;
+	isDismissed: boolean;
 }
 
 export interface RiskEvent extends RiskEventSummary {
@@ -121,6 +123,8 @@ export interface RiskEvent extends RiskEventSummary {
 	notificationSentAt?: string;
 	acknowledgedAt?: string;
 	acknowledgedBy?: string;
+	dismissedAt?: string;
+	dismissedBy?: string;
 	aoiId?: string;
 	changeGeometry?: GeoJSON.Geometry;
 	assetGeometry?: GeoJSON.Geometry;
@@ -282,12 +286,14 @@ export const api = {
 	// Risk events
 	async getRiskEvents(params: {
 		aoiId?: string;
+		runId?: string;
 		minScore?: number;
 		riskLevel?: number;
 		limit?: number;
 	} = {}): Promise<RiskEventSummary[]> {
 		const searchParams = new URLSearchParams();
 		if (params.aoiId) searchParams.set('aoiId', params.aoiId);
+		if (params.runId) searchParams.set('runId', params.runId);
 		if (params.minScore !== undefined) searchParams.set('minScore', params.minScore.toString());
 		if (params.riskLevel !== undefined) searchParams.set('riskLevel', params.riskLevel.toString());
 		if (params.limit) searchParams.set('limit', params.limit.toString());
@@ -315,6 +321,13 @@ export const api = {
 		return fetchJson(`${API_BASE}/api/risk-events/${id}/acknowledge`, {
 			method: 'POST',
 			body: JSON.stringify({ acknowledgedBy, notes })
+		});
+	},
+
+	async dismissRiskEvent(id: string, dismissedBy: string, reason?: string): Promise<RiskEvent> {
+		return fetchJson(`${API_BASE}/api/risk-events/${id}/dismiss`, {
+			method: 'POST',
+			body: JSON.stringify({ dismissedBy, reason })
 		});
 	},
 
