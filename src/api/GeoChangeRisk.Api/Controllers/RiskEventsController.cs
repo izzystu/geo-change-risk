@@ -53,6 +53,7 @@ public class RiskEventsController : ControllerBase
         [FromQuery] string? assetId = null,
         [FromQuery] Guid? runId = null,
         [FromQuery] bool? isAcknowledged = null,
+        [FromQuery] bool? isDismissed = false,
         [FromQuery] int limit = 100,
         [FromQuery] int offset = 0)
     {
@@ -89,6 +90,12 @@ public class RiskEventsController : ControllerBase
                 ? query.Where(e => e.AcknowledgedAt != null)
                 : query.Where(e => e.AcknowledgedAt == null);
         }
+        if (isDismissed.HasValue)
+        {
+            query = isDismissed.Value
+                ? query.Where(e => e.DismissedAt != null)
+                : query.Where(e => e.DismissedAt == null);
+        }
 
         var events = await query
             .OrderByDescending(e => e.RiskScore)
@@ -105,7 +112,8 @@ public class RiskEventsController : ControllerBase
                 RiskLevelName = e.RiskLevel.ToString(),
                 DistanceMeters = e.DistanceMeters,
                 CreatedAt = e.CreatedAt,
-                IsAcknowledged = e.AcknowledgedAt != null
+                IsAcknowledged = e.AcknowledgedAt != null,
+                IsDismissed = e.DismissedAt != null
             })
             .ToListAsync();
 
@@ -149,7 +157,8 @@ public class RiskEventsController : ControllerBase
                 RiskLevelName = e.RiskLevel.ToString(),
                 DistanceMeters = e.DistanceMeters,
                 CreatedAt = e.CreatedAt,
-                IsAcknowledged = false
+                IsAcknowledged = false,
+                IsDismissed = e.DismissedAt != null
             })
             .ToListAsync();
 
@@ -184,7 +193,8 @@ public class RiskEventsController : ControllerBase
                 RiskLevelName = e.RiskLevel.ToString(),
                 DistanceMeters = e.DistanceMeters,
                 CreatedAt = e.CreatedAt,
-                IsAcknowledged = e.AcknowledgedAt != null
+                IsAcknowledged = e.AcknowledgedAt != null,
+                IsDismissed = e.DismissedAt != null
             })
             .ToListAsync();
 
@@ -332,6 +342,48 @@ public class RiskEventsController : ControllerBase
     }
 
     /// <summary>
+    /// Dismiss a risk event (soft-delete).
+    /// </summary>
+    [HttpPost("{id:guid}/dismiss")]
+    public async Task<ActionResult<RiskEventDto>> Dismiss(
+        Guid id,
+        [FromBody] DismissRiskEventRequest request)
+    {
+        var riskEvent = await _context.RiskEvents
+            .Include(e => e.ChangePolygon)
+                .ThenInclude(c => c!.ProcessingRun)
+            .Include(e => e.Asset)
+            .FirstOrDefaultAsync(e => e.RiskEventId == id);
+
+        if (riskEvent == null)
+        {
+            return NotFound(new { Error = $"Risk event '{id}' not found" });
+        }
+
+        if (riskEvent.DismissedAt != null)
+        {
+            return BadRequest(new { Error = "Risk event has already been dismissed" });
+        }
+
+        riskEvent.DismissedAt = DateTime.UtcNow;
+        riskEvent.DismissedBy = request.DismissedBy;
+
+        if (!string.IsNullOrEmpty(request.Reason))
+        {
+            riskEvent.ScoringFactors ??= new Dictionary<string, object>();
+            riskEvent.ScoringFactors["dismissalReason"] = request.Reason;
+        }
+
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Risk event {EventId} dismissed by {User}",
+            id, request.DismissedBy);
+
+        return Ok(ToDto(riskEvent));
+    }
+
+    /// <summary>
     /// Get risk event statistics for an AOI.
     /// </summary>
     [HttpGet("stats")]
@@ -376,6 +428,8 @@ public class RiskEventsController : ControllerBase
             NotificationSentAt = riskEvent.NotificationSentAt,
             AcknowledgedAt = riskEvent.AcknowledgedAt,
             AcknowledgedBy = riskEvent.AcknowledgedBy,
+            DismissedAt = riskEvent.DismissedAt,
+            DismissedBy = riskEvent.DismissedBy,
             AoiId = riskEvent.ChangePolygon?.ProcessingRun?.AoiId,
             ChangeGeometry = riskEvent.ChangePolygon?.Geometry,
             AssetGeometry = riskEvent.Asset?.Geometry

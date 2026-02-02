@@ -63,6 +63,16 @@ public class RiskEvent
     public string? AcknowledgedBy { get; set; }
 
     /// <summary>
+    /// Timestamp when the event was dismissed (soft-delete).
+    /// </summary>
+    public DateTime? DismissedAt { get; set; }
+
+    /// <summary>
+    /// User identifier who dismissed the event.
+    /// </summary>
+    public string? DismissedBy { get; set; }
+
+    /// <summary>
     /// Navigation property to the source change polygon.
     /// </summary>
     public ChangePolygon? ChangePolygon { get; set; }

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using GeoChangeRisk.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -13,9 +14,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GeoChangeRisk.Data.Migrations
 {
     [DbContext(typeof(GeoChangeDbContext))]
-    partial class GeoChangeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260201235405_AddRiskEventDismiss")]
+    partial class AddRiskEventDismiss
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -47,6 +47,12 @@ public class RiskEventDto
     /// <summary>Who acknowledged the event.</summary>
     public string? AcknowledgedBy { get; set; }
 
+    /// <summary>When the event was dismissed.</summary>
+    public DateTime? DismissedAt { get; set; }
+
+    /// <summary>Who dismissed the event.</summary>
+    public string? DismissedBy { get; set; }
+
     /// <summary>AOI ID (from change polygon -> processing run).</summary>
     public string? AoiId { get; set; }
 
@@ -88,6 +94,9 @@ public class RiskEventSummaryDto
 
     /// <summary>Whether the event has been acknowledged.</summary>
     public bool IsAcknowledged { get; set; }
+
+    /// <summary>Whether the event has been dismissed.</summary>
+    public bool IsDismissed { get; set; }
 }
 
 /// <summary>
@@ -133,6 +142,18 @@ public class AcknowledgeRiskEventRequest
 
     /// <summary>Optional notes about the acknowledgment.</summary>
     public string? Notes { get; set; }
+}
+
+/// <summary>
+/// Request DTO for dismissing a risk event.
+/// </summary>
+public class DismissRiskEventRequest
+{
+    /// <summary>User identifier dismissing the event.</summary>
+    public required string DismissedBy { get; set; }
+
+    /// <summary>Optional reason for dismissal.</summary>
+    public string? Reason { get; set; }
 }
 
 /// <summary>
