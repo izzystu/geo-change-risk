@@ -17,7 +17,7 @@ Wildfires, landslides, and other land-surface changes pose significant risks to 
 - **Terrain-Aware Risk Scoring** - Incorporates USGS 3DEP elevation data for slope/aspect analysis and directional risk weighting
 - **Asset Proximity Analysis** - Spatial queries against infrastructure datasets (power lines, substations, hospitals, schools)
 - **Interactive Map UI** - ArcGIS Maps SDK visualization with before/after imagery comparison
-- **Extensible Architecture** - Designed for ML integration (change classification, burn severity prediction)
+- **ML Land Cover Classification** - EuroSAT pretrained model (via TorchGeo) classifies land cover context, distinguishing forest fire from crop harvest to reduce false positives
 
 ## Technology Stack
 
@@ -29,7 +29,7 @@ Wildfires, landslides, and other land-surface changes pose significant risks to 
 | **Raster Pipeline** | Python 3.11+ | Geospatial processing (rasterio, geopandas, pystac) |
 | **Web UI** | SvelteKit + ArcGIS Maps SDK | Interactive mapping and visualization |
 | **Background Jobs** | Hangfire | Scheduled processing and notifications |
-| **ML Framework** | PyTorch + TorchGeo | Change classification (planned) |
+| **ML Classification** | PyTorch + TorchGeo | Land cover classification (EuroSAT, optional) |
 
 ## Architecture
 
@@ -52,7 +52,8 @@ Wildfires, landslides, and other land-surface changes pose significant risks to 
 │  - Processing Runs    │◄──────────────────│    - NDVI Calculation       │
 │  - Change Polygons    │                   │    - Change Detection       │
 │  - Risk Events        │                   │    - Terrain Analysis       │
-└───────────────────────┘                   │    - Risk Scoring           │
+└───────────────────────┘                   │    - ML Land Cover (EuroSAT)│
+                                            │    - Risk Scoring           │
                                             └──────────────┬──────────────┘
                                                            │
                                                            ▼
@@ -73,8 +74,9 @@ The platform uses a multi-factor risk scoring model (0-100 scale):
 | **Distance** | 28 pts | Proximity of change to asset (<100m = max score) |
 | **NDVI Drop** | 25 pts | Severity of vegetation loss (more negative = higher risk) |
 | **Area** | 15 pts | Size of change polygon |
-| **Slope + Direction** | 17 pts | Terrain steepness with upslope/downslope modifier |
+| **Slope + Direction** | 20 pts | Terrain steepness; upslope (landslide/debris risk) 1.5-2.5x, downslope (fire risk) 0.7-0.9x |
 | **Aspect** | 5 pts | South-facing slopes = higher fire risk |
+| **Land Cover** | multiplier | ML-classified context: Forest=1.0x, Crop=0.3x, Highway=0.25x (requires `[ml]` deps) |
 | **Asset Criticality** | multiplier | Critical assets (hospitals, substations) get 2x weight |
 
 **Risk Levels:** Critical (75-100), High (50-74), Medium (25-49), Low (0-24)
@@ -161,7 +163,8 @@ Open http://localhost:5173 to view the application.
 
 ```bash
 cd src/pipeline
-pip install -r requirements.txt
+pip install -e ".[ml]"   # includes ML land cover classification
+# Or: pip install -e .   # base pipeline without ML
 
 # Search for available imagery
 python -m georisk search --aoi-id paradise-ca --date-range 2018-01-01/2018-12-31
@@ -200,7 +203,7 @@ Cloud deployment configurations for AWS and Azure are planned.
 | Raster Pipeline | Complete | STAC search, NDVI calculation, change detection |
 | Risk Scoring | Complete | Multi-factor scoring with terrain analysis |
 | Automation | In Progress | Scheduled jobs and notifications |
-| ML Classification | Planned | Change type classification using TorchGeo |
+| ML Classification | Complete | EuroSAT land cover context via TorchGeo (optional) |
 
 ## License
 
