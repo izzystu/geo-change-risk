@@ -111,6 +111,7 @@ def search(aoi_id: str, date_range: str, max_cloud: float, limit: int, output: P
 @click.option("--dem-source", type=click.Choice(["3dep", "local", "none"]), default="3dep",
               help="DEM source for terrain analysis (3dep=USGS 3DEP, local=local file, none=disable)")
 @click.option("--skip-terrain", is_flag=True, help="Skip terrain analysis")
+@click.option("--skip-landcover", is_flag=True, help="Skip ML land cover classification")
 @click.option("--dry-run", is_flag=True, help="Simulate without API updates")
 @click.pass_context
 def process(
@@ -125,6 +126,7 @@ def process(
     max_distance: float | None,
     dem_source: str,
     skip_terrain: bool,
+    skip_landcover: bool,
     dry_run: bool,
 ) -> None:
     """Process imagery and detect changes for an AOI."""
@@ -266,6 +268,59 @@ def process(
             elif skip_terrain:
                 click.echo("\n3b. Terrain analysis skipped (--skip-terrain)")
 
+            # Land cover classification (if enabled and ML deps available)
+            if not skip_landcover and changes.polygons:
+                click.echo("\n3c. Classifying land cover...")
+                try:
+                    from georisk.raster.landcover import (
+                        is_landcover_available,
+                        load_eurosat_model,
+                        load_scene_bands,
+                        classify_polygon_landcover,
+                    )
+                    from georisk.raster.change import _classify_change
+
+                    if is_landcover_available():
+                        model = load_eurosat_model()
+                        scene_bands = load_scene_bands(before_scene, bbox)
+
+                        if scene_bands is not None:
+                            classified_count = 0
+                            for change in changes.polygons:
+                                result = classify_polygon_landcover(
+                                    scene_bands, change.geometry, model
+                                )
+                                if result is not None:
+                                    change.land_cover_class = result.dominant_class
+                                    change.ml_confidence = result.confidence
+                                    change.ml_model_version = result.model_version
+                                    classified_count += 1
+
+                            click.echo(f"  Classified {classified_count}/{len(changes.polygons)} polygons")
+
+                            # Re-classify change types with land cover context
+                            reclassified = 0
+                            for change in changes.polygons:
+                                if change.land_cover_class is not None:
+                                    new_type = _classify_change(
+                                        change.ndvi_drop_mean, change.land_cover_class
+                                    )
+                                    if new_type != change.change_type:
+                                        change.change_type = new_type
+                                        reclassified += 1
+                            if reclassified:
+                                click.echo(f"  Refined {reclassified} change types with land cover context")
+                        else:
+                            click.echo("  Warning: Could not load scene bands, skipping classification")
+                    else:
+                        click.echo("  ML dependencies not installed (pip install -e '.[ml]'), skipping")
+                except ImportError as e:
+                    click.echo(f"  Warning: Land cover module not available ({e}), skipping")
+                except Exception as e:
+                    click.echo(f"  Warning: Land cover classification failed ({e}), continuing without")
+            elif skip_landcover:
+                click.echo("\n3c. Land cover classification skipped (--skip-landcover)")
+
             # Track created polygon IDs for risk event mapping
             created_polygon_ids: list[str] = []
 
@@ -351,6 +406,13 @@ def process(
                         "stats": changes.stats,
                         "terrain_analysis": dem_data is not None,
                         "dem_source": dem_source if dem_data is not None else None,
+                        "land_cover_classification": any(
+                            c.land_cover_class is not None for c in changes.polygons
+                        ),
+                        "ml_model_version": next(
+                            (c.ml_model_version for c in changes.polygons if c.ml_model_version),
+                            None,
+                        ),
                     },
                 )
 

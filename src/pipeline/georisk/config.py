@@ -59,6 +59,16 @@ class TerrainConfig:
 
 
 @dataclass
+class MlConfig:
+    """Machine learning model configuration."""
+
+    enabled: bool = True
+    landcover_enabled: bool = True
+    landcover_backbone: str = "resnet18"  # "resnet18" or "resnet50"
+    device: str = "auto"  # "cpu", "cuda", "auto"
+
+
+@dataclass
 class Config:
     """Main configuration container."""
 
@@ -67,6 +77,7 @@ class Config:
     api: ApiConfig = field(default_factory=ApiConfig)
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
     terrain: TerrainConfig = field(default_factory=TerrainConfig)
+    ml: MlConfig = field(default_factory=MlConfig)
 
     @classmethod
     def load(cls, config_dir: Path | None = None) -> "Config":
@@ -111,6 +122,17 @@ class Config:
             if "max_cloud_cover" in stac:
                 self.stac.max_cloud_cover = float(stac["max_cloud_cover"])
 
+        if "ml" in data:
+            ml = data["ml"]
+            if "enabled" in ml:
+                self.ml.enabled = bool(ml["enabled"])
+            if "landcover_enabled" in ml:
+                self.ml.landcover_enabled = bool(ml["landcover_enabled"])
+            if "landcover_backbone" in ml:
+                self.ml.landcover_backbone = ml["landcover_backbone"]
+            if "device" in ml:
+                self.ml.device = ml["device"]
+
         if "change_detection" in data:
             cd = data["change_detection"]
             if "ndvi_threshold" in cd:
@@ -153,6 +175,16 @@ class Config:
             self.processing.min_area_m2 = float(area)
         if proximity := os.getenv("MAX_PROXIMITY_M"):
             self.processing.max_proximity_m = float(proximity)
+
+        # ML
+        if ml_enabled := os.getenv("ML_ENABLED"):
+            self.ml.enabled = ml_enabled.lower() in ("true", "1", "yes")
+        if landcover_enabled := os.getenv("LANDCOVER_ENABLED"):
+            self.ml.landcover_enabled = landcover_enabled.lower() in ("true", "1", "yes")
+        if landcover_backbone := os.getenv("LANDCOVER_BACKBONE"):
+            self.ml.landcover_backbone = landcover_backbone
+        if ml_device := os.getenv("ML_DEVICE"):
+            self.ml.device = ml_device
 
         # Terrain
         if terrain_enabled := os.getenv("TERRAIN_ENABLED"):

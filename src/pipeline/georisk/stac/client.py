@@ -109,10 +109,15 @@ class StacClient:
         """Convert a STAC item to a metadata dictionary."""
         props = item.properties
 
-        # Get asset URLs for key bands
-        # B02=Blue, B03=Green, B04=Red (for RGB), B08=NIR (for NDVI), SCL=Scene Classification, visual=RGB composite
+        # Get asset URLs for Sentinel-2 bands
+        # All 13 spectral bands indexed for ML land cover classification (EuroSAT)
+        # Core bands: B02-B04 (RGB), B08 (NIR/NDVI), SCL (cloud mask), visual (preview)
         assets = {}
-        for band_name in ["B02", "B03", "B04", "B08", "SCL", "visual"]:
+        for band_name in [
+            "B01", "B02", "B03", "B04", "B05", "B06", "B07",
+            "B08", "B8A", "B09", "B10", "B11", "B12",
+            "SCL", "visual",
+        ]:
             if band_name in item.assets:
                 asset = item.assets[band_name]
                 assets[band_name] = {
