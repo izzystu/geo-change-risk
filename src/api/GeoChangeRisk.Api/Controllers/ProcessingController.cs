@@ -115,7 +115,8 @@ public class ProcessingController : ControllerBase
                 BeforeDate = r.BeforeDate,
                 AfterDate = r.AfterDate,
                 CreatedAt = r.CreatedAt,
-                ChangePolygonCount = r.ChangePolygons.Count
+                ChangePolygonCount = r.ChangePolygons.Count,
+                RiskEventCount = r.ChangePolygons.SelectMany(c => c.RiskEvents).Count()
             })
             .ToListAsync();
 

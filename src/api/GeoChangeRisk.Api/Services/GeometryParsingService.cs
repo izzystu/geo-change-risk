@@ -51,6 +51,18 @@ public class GeometryParsingService : IGeometryParsingService
         }
 
         var geometry = _geoJsonReader.Read<Geometry>(json);
+
+        // Validate coordinates are in valid WGS84 range
+        var envelope = geometry.EnvelopeInternal;
+        if (envelope.MinX < -180 || envelope.MaxX > 180 ||
+            envelope.MinY < -90 || envelope.MaxY > 90)
+        {
+            throw new ArgumentException(
+                $"Geometry coordinates outside valid WGS84 range. " +
+                $"Bounds: [{envelope.MinX:F4}, {envelope.MinY:F4}, {envelope.MaxX:F4}, {envelope.MaxY:F4}]. " +
+                $"Data may be in a projected CRS (e.g., Web Mercator EPSG:3857).");
+        }
+
         geometry.SRID = 4326;
         return geometry;
     }

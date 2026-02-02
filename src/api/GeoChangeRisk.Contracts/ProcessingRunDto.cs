@@ -76,6 +76,9 @@ public class ProcessingRunSummaryDto
 
     /// <summary>Number of change polygons detected.</summary>
     public int ChangePolygonCount { get; set; }
+
+    /// <summary>Number of risk events generated.</summary>
+    public int RiskEventCount { get; set; }
 }
 
 /// <summary>
