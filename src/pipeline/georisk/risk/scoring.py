@@ -90,14 +90,16 @@ DEFAULT_SCORING = {
         ],
     },
     "directional_slope": {
-        "max_points": 17,  # Combined slope + direction can reach 17 points
+        "max_points": 20,  # Combined slope + direction can reach 20 points
         "upslope_threshold_m": 5.0,  # Elevation diff to consider "upslope"
         "downslope_threshold_m": -5.0,  # Elevation diff to consider "downslope"
+        # Upslope: debris/erosion/landslide flows downhill toward asset
         "upslope_multiplier_base": 1.5,  # Base multiplier for upslope
-        "upslope_multiplier_max": 2.0,  # Max multiplier for steep upslope
+        "upslope_multiplier_max": 2.5,  # Max multiplier for steep upslope
         "upslope_elev_scale": 100,  # Elevation diff to reach max multiplier
-        "downslope_multiplier_base": 0.75,  # Base multiplier for downslope
-        "downslope_multiplier_min": 0.5,  # Min multiplier for steep downslope
+        # Downslope: fire spreads uphill toward asset, moderate discount only
+        "downslope_multiplier_base": 0.9,  # Base multiplier for downslope
+        "downslope_multiplier_min": 0.7,  # Min multiplier for steep downslope
         "downslope_elev_scale": 100,  # Elevation diff to reach min multiplier
     },
     "aspect": {
@@ -118,6 +120,20 @@ DEFAULT_SCORING = {
             {"min_deg": 337.5, "max_deg": 360, "points": 0, "reason_code": "ASPECT_NORTH"},
             {"min_deg": 0, "max_deg": 22.5, "points": 0, "reason_code": "ASPECT_NORTH"},
         ],
+    },
+    "land_cover": {
+        "multipliers": {
+            "Forest": 1.0,
+            "Residential": 0.9,
+            "HerbaceousVegetation": 0.85,
+            "River": 0.8,
+            "PermanentCrop": 0.75,
+            "Pasture": 0.7,
+            "Industrial": 0.5,
+            "SeaLake": 0.4,
+            "AnnualCrop": 0.3,
+            "Highway": 0.25,
+        },
     },
     "criticality": {
         "max_points": 10,
@@ -216,6 +232,30 @@ class RiskScorer:
             aspect_score = self._score_aspect(change.aspect_degrees)
             factors.append(aspect_score)
             total_score += aspect_score.points
+
+        # Apply land cover multiplier (before criticality)
+        lc_multiplier = self._get_land_cover_multiplier(change.land_cover_class)
+        if lc_multiplier != 1.0:
+            lc_delta = int(total_score * lc_multiplier) - total_score
+            lc_factor = ScoringFactor(
+                name="Land Cover",
+                points=lc_delta,
+                max_points=0,
+                reason_code=f"LANDCOVER_{change.land_cover_class.upper()}" if change.land_cover_class else "LANDCOVER_UNKNOWN",
+                details=f"Land cover: {change.land_cover_class or 'unknown'} (multiplier: {lc_multiplier:.2f}x)",
+            )
+            factors.append(lc_factor)
+            total_score = int(total_score * lc_multiplier)
+        elif change.land_cover_class is not None:
+            # Land cover is Forest (1.0x) — still record it for transparency
+            lc_factor = ScoringFactor(
+                name="Land Cover",
+                points=0,
+                max_points=0,
+                reason_code=f"LANDCOVER_{change.land_cover_class.upper()}",
+                details=f"Land cover: {change.land_cover_class} (multiplier: 1.00x, baseline)",
+            )
+            factors.append(lc_factor)
 
         # Apply criticality multiplier
         multiplier = self.config["criticality"]["multipliers"].get(proximity.criticality, 1.0)
@@ -339,13 +379,16 @@ class RiskScorer:
     ) -> ScoringFactor:
         """Score based on terrain slope with directional modifier.
 
-        Upslope changes (positive elevation_diff) get higher scores because:
-        - Fire spreads uphill 2-4x faster (preheating effect)
-        - Debris/erosion flows downhill toward asset
+        Upslope changes (change is higher than asset, positive elevation_diff):
+        - HIGHEST RISK: Debris, erosion, and sediment flow downhill toward asset
+        - Destabilized slopes above infrastructure are an imminent threat
+        - Root structure loss (forest/vegetation) increases landslide probability
 
-        Downslope changes get lower scores because:
-        - Fire spreads slower downhill
-        - Debris flows away from asset
+        Downslope changes (change is lower than asset, negative elevation_diff):
+        - MODERATE RISK: Fire spreads uphill 2-4x faster due to preheating,
+          so a fire starting below the asset advances toward it
+        - Debris/erosion flows away from asset (lower risk for those threats)
+        - Net effect: reduced but still significant risk
 
         Args:
             slope_deg: Slope steepness in degrees.
@@ -356,7 +399,7 @@ class RiskScorer:
             ScoringFactor with directional slope score.
         """
         config = self.config.get("directional_slope", self.config["slope"])
-        max_pts = config.get("max_points", 17)
+        max_pts = config.get("max_points", 20)
 
         # Calculate base slope score (0-10 points)
         base_points = 0
@@ -384,9 +427,10 @@ class RiskScorer:
         downslope_threshold = config.get("downslope_threshold_m", -5.0)
 
         if elevation_diff_m > upslope_threshold:
-            # Change is upslope from asset - HIGHER risk
+            # Change is upslope from asset - HIGHEST risk
+            # Debris/erosion/landslide flows downhill toward asset
             upslope_base = config.get("upslope_multiplier_base", 1.5)
-            upslope_max = config.get("upslope_multiplier_max", 2.0)
+            upslope_max = config.get("upslope_multiplier_max", 2.5)
             elev_scale = config.get("upslope_elev_scale", 100)
 
             # Scale from base to max based on elevation difference
@@ -398,9 +442,10 @@ class RiskScorer:
             direction_desc = f"upslope ({elevation_diff_m:.0f}m higher)"
 
         elif elevation_diff_m < downslope_threshold:
-            # Change is downslope from asset - LOWER risk
-            downslope_base = config.get("downslope_multiplier_base", 0.75)
-            downslope_min = config.get("downslope_multiplier_min", 0.5)
+            # Change is downslope from asset - MODERATE risk
+            # Fire spreads uphill toward asset, but debris flows away
+            downslope_base = config.get("downslope_multiplier_base", 0.9)
+            downslope_min = config.get("downslope_multiplier_min", 0.7)
             elev_scale = config.get("downslope_elev_scale", 100)
 
             # Scale from base to min based on elevation difference
@@ -469,6 +514,27 @@ class RiskScorer:
             reason_code="ASPECT_OTHER",
             details=f"Aspect: {aspect:.0f}\u00b0 ({self._aspect_to_compass(aspect)})",
         )
+
+    def _get_land_cover_multiplier(self, land_cover_class: str | None) -> float:
+        """Get risk multiplier for the land cover type.
+
+        Land cover contextualizes the detected change: a forest-to-bare
+        transition is inherently more concerning than a crop harvest.
+        The multiplier is applied to the base score before criticality.
+
+        Args:
+            land_cover_class: EuroSAT class name (e.g. "Forest", "AnnualCrop"),
+                             or None if classification was not performed.
+
+        Returns:
+            Multiplier in range [0.25, 1.0]. Returns 1.0 if no class provided.
+        """
+        if land_cover_class is None:
+            return 1.0
+
+        lc_config = self.config.get("land_cover", {})
+        multipliers = lc_config.get("multipliers", {})
+        return multipliers.get(land_cover_class, 1.0)
 
     def _aspect_to_compass(self, aspect: float) -> str:
         """Convert aspect degrees to compass direction."""

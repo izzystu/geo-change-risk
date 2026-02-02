@@ -11,6 +11,10 @@ from shapely.ops import transform
 
 logger = structlog.get_logger()
 
+# Overhead lines: ground changes don't threaten suspended cables.
+# Risk is captured by ground-level support structures (poles/towers = Point geometries).
+OVERHEAD_LINE_TYPES = {'TransmissionLine'}
+
 
 @dataclass
 class ProximityResult:
@@ -102,6 +106,28 @@ def find_nearby_assets(
 
             if isinstance(asset_geom, dict):
                 asset_geom = shape(asset_geom)
+
+            # Skip overhead line geometries — ground changes don't affect suspended cables
+            if (asset_geom.geom_type in ('LineString', 'MultiLineString') and
+                    asset.get('assetTypeName') in OVERHEAD_LINE_TYPES):
+                logger.debug(
+                    "Skipping overhead line geometry",
+                    asset_name=asset.get("name"),
+                    asset_type=asset.get("assetTypeName"),
+                )
+                continue
+
+            # Validate asset coordinates are in WGS84 range
+            asset_bounds = asset_geom.bounds  # (minx, miny, maxx, maxy)
+            if (asset_bounds[0] < -180 or asset_bounds[2] > 180 or
+                    asset_bounds[1] < -90 or asset_bounds[3] > 90):
+                logger.warning(
+                    "Skipping asset with non-WGS84 coordinates",
+                    asset_id=asset.get("assetId"),
+                    asset_name=asset.get("name"),
+                    bounds=asset_bounds,
+                )
+                continue
 
             # Transform to projected CRS if we have a transformer
             if to_projected:

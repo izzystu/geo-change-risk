@@ -31,6 +31,9 @@ class ChangePolygon:
     slope_degree_max: float | None = None
     aspect_degrees: float | None = None
     elevation_m: float | None = None
+    land_cover_class: str | None = None
+    ml_confidence: float | None = None
+    ml_model_version: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API submission (camelCase for C# API)."""
@@ -58,6 +61,8 @@ class ChangePolygon:
             "slopeDegreeMax": self.slope_degree_max,
             "aspectDegrees": self.aspect_degrees,
             "elevationM": self.elevation_m,
+            "mlConfidence": self.ml_confidence,
+            "mlModelVersion": self.ml_model_version,
         }
 
 
@@ -90,7 +95,8 @@ class ChangeDetectionResult:
                 columns=[
                     "geometry", "area_sq_meters", "ndvi_drop_mean", "ndvi_drop_max",
                     "change_type", "slope_degree_mean", "slope_degree_max",
-                    "aspect_degrees", "elevation_m",
+                    "aspect_degrees", "elevation_m", "land_cover_class",
+                    "ml_confidence", "ml_model_version",
                 ],
                 crs="EPSG:4326",
             )
@@ -106,6 +112,9 @@ class ChangeDetectionResult:
                 "slope_degree_max": p.slope_degree_max,
                 "aspect_degrees": p.aspect_degrees,
                 "elevation_m": p.elevation_m,
+                "land_cover_class": p.land_cover_class,
+                "ml_confidence": p.ml_confidence,
+                "ml_model_version": p.ml_model_version,
             }
             for p in self.polygons
         ]
@@ -339,13 +348,32 @@ def _extract_polygon_stats(
     }
 
 
-def _classify_change(mean_ndvi_drop: float) -> str:
-    """Classify the type of change based on NDVI drop magnitude."""
+def _classify_change(mean_ndvi_drop: float, land_cover_class: str | None = None) -> str:
+    """Classify the type of change based on NDVI drop magnitude and land cover context.
+
+    When land_cover_class is provided (from EuroSAT ML classification), the change
+    type is refined beyond generic VegetationLoss. For example, severe forest loss
+    is classified as FireBurnScar, while crop loss is AgriculturalChange.
+
+    Args:
+        mean_ndvi_drop: Mean NDVI change (negative = loss).
+        land_cover_class: Optional EuroSAT land cover class for the "before" image.
+
+    Returns:
+        Change type string matching the ChangeType enum in the API.
+    """
     if mean_ndvi_drop < -0.4:
-        return "VegetationLoss"  # Severe loss
+        if land_cover_class == "Forest":
+            return "FireBurnScar"
+        if land_cover_class in ("AnnualCrop", "PermanentCrop"):
+            return "AgriculturalChange"
+        return "VegetationLoss"
     elif mean_ndvi_drop < -0.2:
-        return "VegetationLoss"  # Moderate loss
+        if land_cover_class in ("AnnualCrop", "PermanentCrop"):
+            return "AgriculturalChange"
+        if land_cover_class in ("HerbaceousVegetation", "Pasture"):
+            return "DroughtStress"
+        return "VegetationLoss"
     elif mean_ndvi_drop > 0.2:
-        return "VegetationGain"  # Growth
-    else:
-        return "Unknown"
+        return "VegetationGain"
+    return "Unknown"

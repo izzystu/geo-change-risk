@@ -243,12 +243,12 @@ class TestDirectionalSlopeScoring:
         assert factor.reason_code == "SLOPE_LEVEL"
 
     def test_steep_upslope_caps_at_max(self):
-        """Very steep upslope score must not exceed max_points (17)."""
+        """Very steep upslope score must not exceed max_points (20)."""
         scorer = RiskScorer()
         factor = scorer._score_directional_slope(slope_deg=35.0, elevation_diff_m=200.0)
 
-        assert factor.points <= 17
-        assert factor.max_points == 17
+        assert factor.points <= 20
+        assert factor.max_points == 20
 
     def test_flat_slope_with_upslope_diff(self):
         """A flat slope (0 deg) multiplied by upslope modifier still yields 0."""
@@ -460,13 +460,23 @@ class TestCalculateRiskScore:
         assert "Criticality" in factor_names
 
     def test_score_breakdown_is_consistent(self, sample_change_polygon, sample_proximity_result):
-        """The total score should equal the sum of factor points times criticality."""
+        """The total score should equal the sum of factor points times criticality.
+
+        The Land Cover factor (if present) is a multiplicative adjustment already
+        folded into total_score before criticality is applied, so we exclude both
+        Land Cover and Criticality when reconstructing the expected score.
+        """
         scorer = RiskScorer()
         result = scorer.calculate_risk_score(sample_change_polygon, sample_proximity_result)
 
-        # Sum all factors except the Criticality adjustment factor
-        base_factors = [f for f in result.factors if f.name != "Criticality"]
+        # Sum all factors except Criticality and Land Cover (which are multipliers, not additive)
+        base_factors = [f for f in result.factors if f.name not in ("Criticality", "Land Cover")]
         base_sum = sum(f.points for f in base_factors)
+
+        # Apply land cover multiplier if present
+        lc_factor = next((f for f in result.factors if f.name == "Land Cover"), None)
+        if lc_factor is not None:
+            base_sum = base_sum + lc_factor.points  # lc_factor.points is the delta
 
         # Criticality multiplier for criticality=2 is 1.5
         expected_score = min(100, int(base_sum * 1.5))
@@ -690,3 +700,183 @@ class TestEdgeCases:
         result = scorer.calculate_risk_score(change, proximity)
         assert result.level == "Critical"
         assert result.score >= 75
+
+
+# ---------------------------------------------------------------------------
+# Land cover multiplier
+# ---------------------------------------------------------------------------
+
+class TestLandCoverMultiplier:
+    """Tests for land cover risk multiplier in scoring."""
+
+    @pytest.mark.parametrize(
+        "land_cover, expected_multiplier",
+        [
+            ("Forest", 1.0),
+            ("Residential", 0.9),
+            ("HerbaceousVegetation", 0.85),
+            ("River", 0.8),
+            ("PermanentCrop", 0.75),
+            ("Pasture", 0.7),
+            ("Industrial", 0.5),
+            ("SeaLake", 0.4),
+            ("AnnualCrop", 0.3),
+            ("Highway", 0.25),
+        ],
+        ids=[
+            "forest_1.0x",
+            "residential_0.9x",
+            "herbaceous_0.85x",
+            "river_0.8x",
+            "permanent_crop_0.75x",
+            "pasture_0.7x",
+            "industrial_0.5x",
+            "sea_lake_0.4x",
+            "annual_crop_0.3x",
+            "highway_0.25x",
+        ],
+    )
+    def test_multiplier_values(self, land_cover, expected_multiplier):
+        scorer = RiskScorer()
+        assert scorer._get_land_cover_multiplier(land_cover) == expected_multiplier
+
+    def test_none_returns_neutral(self):
+        """No land cover class means neutral 1.0x multiplier."""
+        scorer = RiskScorer()
+        assert scorer._get_land_cover_multiplier(None) == 1.0
+
+    def test_unknown_class_returns_neutral(self):
+        """An unrecognized class name defaults to 1.0x."""
+        scorer = RiskScorer()
+        assert scorer._get_land_cover_multiplier("UnknownClass") == 1.0
+
+    def test_forest_does_not_change_score(self):
+        """Forest (1.0x) should produce the same score as no land cover."""
+        scorer = RiskScorer()
+        change_none = _make_change(slope_degree_mean=None, aspect_degrees=None)
+        change_forest = _make_change(
+            slope_degree_mean=None, aspect_degrees=None, land_cover_class="Forest",
+        )
+        proximity = _make_proximity(
+            criticality=1, criticality_name="Medium", elevation_diff_m=None,
+        )
+
+        score_none = scorer.calculate_risk_score(change_none, proximity).score
+        score_forest = scorer.calculate_risk_score(change_forest, proximity).score
+        assert score_none == score_forest
+
+    def test_annual_crop_reduces_score(self):
+        """AnnualCrop (0.3x) should significantly reduce the score vs Forest."""
+        scorer = RiskScorer()
+        change_forest = _make_change(
+            slope_degree_mean=None, aspect_degrees=None, land_cover_class="Forest",
+        )
+        change_crop = _make_change(
+            slope_degree_mean=None, aspect_degrees=None, land_cover_class="AnnualCrop",
+        )
+        proximity = _make_proximity(
+            criticality=1, criticality_name="Medium", elevation_diff_m=None,
+        )
+
+        score_forest = scorer.calculate_risk_score(change_forest, proximity).score
+        score_crop = scorer.calculate_risk_score(change_crop, proximity).score
+        assert score_crop < score_forest
+
+    def test_land_cover_factor_appears_when_class_set(self):
+        """A 'Land Cover' factor should appear when land_cover_class is set."""
+        scorer = RiskScorer()
+        change = _make_change(
+            slope_degree_mean=None, aspect_degrees=None, land_cover_class="AnnualCrop",
+        )
+        proximity = _make_proximity(
+            criticality=1, criticality_name="Medium", elevation_diff_m=None,
+        )
+
+        result = scorer.calculate_risk_score(change, proximity)
+        factor_names = [f.name for f in result.factors]
+        assert "Land Cover" in factor_names
+
+    def test_land_cover_factor_absent_when_class_is_none(self):
+        """No 'Land Cover' factor when land_cover_class is None."""
+        scorer = RiskScorer()
+        change = _make_change(slope_degree_mean=None, aspect_degrees=None)
+        proximity = _make_proximity(
+            criticality=1, criticality_name="Medium", elevation_diff_m=None,
+        )
+
+        result = scorer.calculate_risk_score(change, proximity)
+        factor_names = [f.name for f in result.factors]
+        assert "Land Cover" not in factor_names
+
+    def test_forest_factor_recorded_for_transparency(self):
+        """Forest (1.0x) should still record a factor with 0 points."""
+        scorer = RiskScorer()
+        change = _make_change(
+            slope_degree_mean=None, aspect_degrees=None, land_cover_class="Forest",
+        )
+        proximity = _make_proximity(
+            criticality=1, criticality_name="Medium", elevation_diff_m=None,
+        )
+
+        result = scorer.calculate_risk_score(change, proximity)
+        lc_factor = next(f for f in result.factors if f.name == "Land Cover")
+        assert lc_factor.points == 0
+        assert lc_factor.reason_code == "LANDCOVER_FOREST"
+
+    def test_land_cover_applied_before_criticality(self):
+        """Land cover multiplier adjusts the base score before criticality."""
+        scorer = RiskScorer()
+        change = _make_change(
+            slope_degree_mean=None, aspect_degrees=None, land_cover_class="AnnualCrop",
+        )
+        proximity = _make_proximity(
+            criticality=1, criticality_name="Medium", elevation_diff_m=None,
+        )
+
+        result = scorer.calculate_risk_score(change, proximity)
+
+        # Additive base: Distance + NDVI + Area (no slope, no aspect)
+        additive_factors = [f for f in result.factors
+                           if f.name not in ("Criticality", "Land Cover")]
+        additive_sum = sum(f.points for f in additive_factors)
+
+        # AnnualCrop = 0.3x, Medium criticality = 1.0x
+        expected = min(100, int(int(additive_sum * 0.3) * 1.0))
+        assert result.score == expected
+
+    def test_land_cover_and_criticality_compound(self):
+        """Both multipliers should compound: base * lc * criticality."""
+        scorer = RiskScorer()
+        change = _make_change(
+            slope_degree_mean=None, aspect_degrees=None, land_cover_class="Pasture",
+        )
+        proximity = _make_proximity(
+            criticality=2, criticality_name="High", elevation_diff_m=None,
+        )
+
+        result = scorer.calculate_risk_score(change, proximity)
+
+        additive_factors = [f for f in result.factors
+                           if f.name not in ("Criticality", "Land Cover")]
+        additive_sum = sum(f.points for f in additive_factors)
+
+        # Pasture = 0.7x, High criticality = 1.5x
+        after_lc = int(additive_sum * 0.7)
+        expected = min(100, int(after_lc * 1.5))
+        assert result.score == expected
+
+    def test_ordering_forest_gt_crop_gt_highway(self):
+        """Forest should score higher than Crop, which should score higher than Highway."""
+        scorer = RiskScorer()
+        proximity = _make_proximity(
+            criticality=1, criticality_name="Medium", elevation_diff_m=None,
+        )
+
+        scores = {}
+        for lc in ["Forest", "AnnualCrop", "Highway"]:
+            change = _make_change(
+                slope_degree_mean=None, aspect_degrees=None, land_cover_class=lc,
+            )
+            scores[lc] = scorer.calculate_risk_score(change, proximity).score
+
+        assert scores["Forest"] > scores["AnnualCrop"] >= scores["Highway"]
