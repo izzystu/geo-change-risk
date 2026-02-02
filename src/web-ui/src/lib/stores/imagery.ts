@@ -1,12 +1,5 @@
 import { writable, derived } from 'svelte/store';
-import type { ImageryScene, ImagerySceneDetail } from '$lib/services/api';
-
-// Available scenes for the current AOI
-export const availableScenes = writable<ImageryScene[]>([]);
-
-// Selected scenes for before/after comparison
-export const selectedBeforeSceneId = writable<string | null>(null);
-export const selectedAfterSceneId = writable<string | null>(null);
+import type { ImagerySceneDetail } from '$lib/services/api';
 
 // Scene details with presigned URLs
 export const beforeSceneDetail = writable<ImagerySceneDetail | null>(null);
@@ -20,7 +13,6 @@ export const showAfterImagery = writable(false);
 export const imageryOpacity = writable(0.7);
 
 // Loading states
-export const scenesLoading = writable(false);
 export const sceneDetailLoading = writable(false);
 export const imageryError = writable<string | null>(null);
 
@@ -39,11 +31,8 @@ export const activeImageryUrl = derived(
     }
 );
 
-// Reset imagery state when AOI changes
+// Reset imagery state when run changes
 export function resetImageryState() {
-    availableScenes.set([]);
-    selectedBeforeSceneId.set(null);
-    selectedAfterSceneId.set(null);
     beforeSceneDetail.set(null);
     afterSceneDetail.set(null);
     showBeforeImagery.set(false);

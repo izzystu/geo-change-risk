@@ -1,67 +1,74 @@
 <script lang="ts">
 	import { selectedAoiId } from '$lib/stores/aoi';
+	import { selectedRunId, processingRuns } from '$lib/stores/processing';
 	import {
-		availableScenes,
-		selectedBeforeSceneId,
-		selectedAfterSceneId,
 		beforeSceneDetail,
 		afterSceneDetail,
 		showBeforeImagery,
 		showAfterImagery,
 		imageryOpacity,
-		scenesLoading,
 		sceneDetailLoading,
 		imageryError,
 		resetImageryState
 	} from '$lib/stores/imagery';
 	import { api } from '$lib/services/api';
 
-	// Load scenes when AOI changes
+	// Track which run we've loaded imagery for
+	let loadedForRunId: string | null = null;
+
+	// Reset when AOI changes
 	$: if ($selectedAoiId) {
-		loadScenes($selectedAoiId);
+		resetImageryState();
+		loadedForRunId = null;
 	}
 
-	async function loadScenes(aoiId: string) {
+	// Auto-load before/after scenes when a processing run is selected
+	$: if ($selectedRunId && $selectedAoiId && $selectedRunId !== loadedForRunId) {
+		loadScenesForRun($selectedAoiId, $selectedRunId);
+	}
+
+	async function loadScenesForRun(aoiId: string, runId: string) {
+		loadedForRunId = runId;
 		resetImageryState();
-		scenesLoading.set(true);
+		sceneDetailLoading.set(true);
 		imageryError.set(null);
 
 		try {
-			const scenes = await api.getImageryScenes(aoiId);
-			availableScenes.set(scenes);
-		} catch (err) {
-			console.error('Failed to load imagery scenes:', err);
-			imageryError.set('Failed to load imagery scenes');
-		} finally {
-			scenesLoading.set(false);
-		}
-	}
+			const run = await api.getProcessingRun(runId);
 
-	async function loadSceneDetail(aoiId: string, sceneId: string, isBefore: boolean) {
-		sceneDetailLoading.set(true);
-
-		try {
-			const detail = await api.getImageryScene(aoiId, sceneId);
-			if (isBefore) {
-				beforeSceneDetail.set(detail);
-			} else {
-				afterSceneDetail.set(detail);
+			const loads: Promise<void>[] = [];
+			if (run.beforeSceneId) {
+				loads.push(
+					api.getImageryScene(aoiId, run.beforeSceneId).then(detail => {
+						beforeSceneDetail.set(detail);
+					})
+				);
 			}
+			if (run.afterSceneId) {
+				loads.push(
+					api.getImageryScene(aoiId, run.afterSceneId).then(detail => {
+						afterSceneDetail.set(detail);
+					})
+				);
+			}
+			await Promise.all(loads);
 		} catch (err) {
-			console.error(`Failed to load scene ${sceneId}:`, err);
-			imageryError.set(`Failed to load scene details`);
+			console.error('Failed to load imagery for run:', err);
+			imageryError.set('Failed to load imagery');
 		} finally {
 			sceneDetailLoading.set(false);
 		}
 	}
 
-	// Load scene details when selection changes
-	$: if ($selectedBeforeSceneId && $selectedAoiId) {
-		loadSceneDetail($selectedAoiId, $selectedBeforeSceneId, true);
-	}
+	// Derive friendly date labels from the selected run
+	$: selectedRun = $processingRuns.find(r => r.runId === $selectedRunId) ?? null;
 
-	$: if ($selectedAfterSceneId && $selectedAoiId) {
-		loadSceneDetail($selectedAoiId, $selectedAfterSceneId, false);
+	type ImagerySelection = 'none' | 'before' | 'after';
+	$: selection = $showAfterImagery ? 'after' : $showBeforeImagery ? 'before' : 'none' as ImagerySelection;
+
+	function setSelection(value: ImagerySelection) {
+		showBeforeImagery.set(value === 'before');
+		showAfterImagery.set(value === 'after');
 	}
 
 	function formatDate(dateStr: string): string {
@@ -69,14 +76,9 @@
 		return date.toLocaleDateString('en-US', {
 			year: 'numeric',
 			month: 'short',
-			day: 'numeric'
+			day: 'numeric',
+			timeZone: 'UTC'
 		});
-	}
-
-	function formatFileSize(bytes: number): string {
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	}
 </script>
 
@@ -85,83 +87,48 @@
 
 	{#if !$selectedAoiId}
 		<p class="empty-state">Select an AOI to view imagery</p>
-	{:else if $scenesLoading}
-		<p class="loading">Loading scenes...</p>
+	{:else if !$selectedRunId}
+		<p class="empty-state">Select a processing run to view imagery</p>
+	{:else if $sceneDetailLoading}
+		<p class="loading">Loading imagery...</p>
 	{:else if $imageryError}
 		<p class="error">{$imageryError}</p>
-	{:else if $availableScenes.length === 0}
-		<p class="empty-state">No imagery available for this AOI</p>
+	{:else if !$beforeSceneDetail && !$afterSceneDetail}
+		<p class="empty-state">No imagery available for this run</p>
 	{:else}
-		<div class="scene-selectors">
-			<div class="scene-selector">
-				<div class="selector-header">
-					<label class="scene-label" for="before-scene">Before</label>
-					<label class="visibility-toggle">
-						<input
-							type="checkbox"
-							bind:checked={$showBeforeImagery}
-							disabled={!$beforeSceneDetail}
-						/>
-						Show
-					</label>
-				</div>
-				<select
-					id="before-scene"
-					class="scene-select"
-					bind:value={$selectedBeforeSceneId}
+		<div class="imagery-selector">
+			<div class="segment-group">
+				<button
+					class="segment-btn"
+					class:active={selection === 'none'}
+					on:click={() => setSelection('none')}
 				>
-					<option value={null}>Select scene...</option>
-					{#each $availableScenes as scene}
-						<option value={scene.sceneId}>
-							{scene.sceneId} ({formatDate(scene.lastModified)})
-						</option>
-					{/each}
-				</select>
+					None
+				</button>
 				{#if $beforeSceneDetail}
-					<div class="scene-files">
-						{#each $beforeSceneDetail.files as file}
-							<span class="file-tag" title={file.fileName}>
-								{file.fileName.split('.')[0]} ({formatFileSize(file.size)})
-							</span>
-						{/each}
-					</div>
+					<button
+						class="segment-btn"
+						class:active={selection === 'before'}
+						on:click={() => setSelection('before')}
+					>
+						Before
+					</button>
 				{/if}
-			</div>
-
-			<div class="scene-selector">
-				<div class="selector-header">
-					<label class="scene-label" for="after-scene">After</label>
-					<label class="visibility-toggle">
-						<input
-							type="checkbox"
-							bind:checked={$showAfterImagery}
-							disabled={!$afterSceneDetail}
-						/>
-						Show
-					</label>
-				</div>
-				<select
-					id="after-scene"
-					class="scene-select"
-					bind:value={$selectedAfterSceneId}
-				>
-					<option value={null}>Select scene...</option>
-					{#each $availableScenes as scene}
-						<option value={scene.sceneId}>
-							{scene.sceneId} ({formatDate(scene.lastModified)})
-						</option>
-					{/each}
-				</select>
 				{#if $afterSceneDetail}
-					<div class="scene-files">
-						{#each $afterSceneDetail.files as file}
-							<span class="file-tag" title={file.fileName}>
-								{file.fileName.split('.')[0]} ({formatFileSize(file.size)})
-							</span>
-						{/each}
-					</div>
+					<button
+						class="segment-btn"
+						class:active={selection === 'after'}
+						on:click={() => setSelection('after')}
+					>
+						After
+					</button>
 				{/if}
 			</div>
+			{#if selectedRun && selection !== 'none'}
+				<span class="selection-date">
+					{formatDate(selection === 'before' ? selectedRun.beforeDate : selectedRun.afterDate)}
+				</span>
+			{/if}
 		</div>
 
 		<div class="opacity-control">
@@ -175,10 +142,6 @@
 				bind:value={$imageryOpacity}
 			/>
 		</div>
-
-		{#if $sceneDetailLoading}
-			<p class="loading">Loading scene details...</p>
-		{/if}
 	{/if}
 </div>
 
@@ -207,75 +170,44 @@
 		color: #ef4444;
 	}
 
-	.scene-selectors {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.scene-selector {
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
-	}
-
-	.selector-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.scene-label {
-		font-size: 0.8125rem;
-		font-weight: 500;
-		color: var(--color-text);
-	}
-
-	.visibility-toggle {
+	.imagery-selector {
 		display: flex;
 		align-items: center;
-		gap: 0.25rem;
-		font-size: 0.75rem;
-		color: var(--color-text-muted);
-		cursor: pointer;
+		gap: 0.5rem;
 	}
 
-	.visibility-toggle input {
-		width: 0.875rem;
-		height: 0.875rem;
-		cursor: pointer;
-	}
-
-	.scene-select {
-		padding: 0.5rem;
-		font-size: 0.8125rem;
+	.segment-group {
+		display: flex;
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-sm);
+		overflow: hidden;
+	}
+
+	.segment-btn {
+		font-size: 0.75rem;
+		padding: 0.25rem 0.625rem;
+		border: none;
 		background: var(--color-bg);
-		color: var(--color-text);
+		color: var(--color-text-muted);
 		cursor: pointer;
+		transition: all 0.15s ease;
 	}
 
-	.scene-select:hover {
-		border-color: var(--color-text-muted);
+	.segment-btn:not(:last-child) {
+		border-right: 1px solid var(--color-border);
 	}
 
-	.scene-select:focus {
-		outline: none;
-		border-color: var(--color-primary);
+	.segment-btn:hover:not(.active) {
+		background: var(--color-surface);
 	}
 
-	.scene-files {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
+	.segment-btn.active {
+		background: var(--color-primary);
+		color: white;
 	}
 
-	.file-tag {
-		font-size: 0.6875rem;
-		padding: 0.125rem 0.375rem;
-		background: var(--color-border);
-		border-radius: var(--radius-sm);
+	.selection-date {
+		font-size: 0.75rem;
 		color: var(--color-text-muted);
 	}
 

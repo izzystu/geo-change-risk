@@ -20,10 +20,11 @@
 	let map: __esri.Map | null = null;
 	let mapView: __esri.MapView | null = null;
 	let mapReady = false;
-	let assetLayers: Map<number, __esri.GeoJSONLayer> = new Map();
+	let assetLayers: Map<number, __esri.GeoJSONLayer[]> = new Map();
 	let beforeImageryLayer: __esri.MediaLayer | null = null;
 	let afterImageryLayer: __esri.MediaLayer | null = null;
 	let changePolygonLayer: __esri.GeoJSONLayer | null = null;
+	let highlightLayer: __esri.GraphicsLayer | null = null;
 
 	// Track current AOI to detect changes
 	let currentAoiId: string | null = null;
@@ -50,6 +51,11 @@
 		});
 
 		await mapView.when();
+
+		const { default: GraphicsLayer } = await import('@arcgis/core/layers/GraphicsLayer');
+		highlightLayer = new GraphicsLayer({ title: 'Selection Highlight' });
+		map.add(highlightLayer);
+
 		mapReady = true;
 
 		// If AOI was already selected before map was ready, load it now
@@ -146,7 +152,7 @@
 		const { default: GeoJSONLayer } = await import('@arcgis/core/layers/GeoJSONLayer');
 
 		// Remove existing layers
-		assetLayers.forEach(layer => mapView!.map.remove(layer));
+		assetLayers.forEach(layers => layers.forEach(layer => mapView!.map.remove(layer)));
 		assetLayers.clear();
 
 		try {
@@ -162,44 +168,64 @@
 				featuresByType.get(assetType)!.push(feature);
 			}
 
-			// Create a layer for each asset type
+			// Create a layer for each asset type, splitting mixed geometry types
 			for (const [assetType, features] of featuresByType) {
 				const layerConfig = $layers.find(l => l.id === assetType);
 				const color = layerConfig?.color ?? '#94a3b8';
 				const visible = layerConfig?.visible ?? true;
+				const baseName = layerConfig?.name ?? `Type ${assetType}`;
 
-				const typeGeojson = {
-					type: 'FeatureCollection',
-					features
-				};
-
-				const blob = new Blob([JSON.stringify(typeGeojson)], { type: 'application/json' });
-				const url = URL.createObjectURL(blob);
-
-				const geomType = detectGeometryType(features);
-				const layer = new GeoJSONLayer({
-					url,
-					title: layerConfig?.name ?? `Type ${assetType}`,
-					visible,
-					outFields: ['*'],
-					renderer: createRenderer(color, geomType),
-					popupTemplate: {
-						title: '{name}',
-						content: [
-							{
-								type: 'fields',
-								fieldInfos: [
-									{ fieldName: 'assetTypeName', label: 'Type' },
-									{ fieldName: 'criticalityName', label: 'Criticality' },
-									{ fieldName: 'sourceDataset', label: 'Source' }
-								]
-							}
-						]
+				// Sub-group by geometry category so each layer gets the right renderer
+				const byGeomCategory = new Map<string, any[]>();
+				for (const feature of features) {
+					const gt = feature.geometry?.type ?? 'Polygon';
+					const category = gt.includes('Point') ? 'Point'
+						: gt.includes('Line') ? 'LineString'
+						: 'Polygon';
+					if (!byGeomCategory.has(category)) {
+						byGeomCategory.set(category, []);
 					}
-				});
+					byGeomCategory.get(category)!.push(feature);
+				}
 
-				assetLayers.set(assetType, layer);
-				mapView.map.add(layer);
+				const sublayers: __esri.GeoJSONLayer[] = [];
+				const hasMixed = byGeomCategory.size > 1;
+
+				for (const [geomCategory, geomFeatures] of byGeomCategory) {
+					const typeGeojson = {
+						type: 'FeatureCollection',
+						features: geomFeatures
+					};
+
+					const blob = new Blob([JSON.stringify(typeGeojson)], { type: 'application/json' });
+					const url = URL.createObjectURL(blob);
+
+					const layer = new GeoJSONLayer({
+						url,
+						title: hasMixed ? `${baseName} (${geomCategory}s)` : baseName,
+						visible,
+						outFields: ['*'],
+						renderer: createRenderer(color, geomCategory),
+						popupTemplate: {
+							title: '{name}',
+							content: [
+								{
+									type: 'fields',
+									fieldInfos: [
+										{ fieldName: 'assetTypeName', label: 'Type' },
+										{ fieldName: 'criticalityName', label: 'Criticality' },
+										{ fieldName: 'sourceDataset', label: 'Source' }
+									]
+								}
+							]
+						}
+					});
+
+					sublayers.push(layer);
+					mapView.map.add(layer);
+				}
+
+				assetLayers.set(assetType, sublayers);
 			}
 
 			console.log(`Loaded ${featuresByType.size} layer groups with ${geojson.features.length} total features`);
@@ -241,15 +267,6 @@
 		}
 	}
 
-	function detectGeometryType(features: any[]): string {
-		for (const f of features) {
-			if (f.geometry?.type) {
-				return f.geometry.type;
-			}
-		}
-		return 'Polygon';
-	}
-
 	function hexToRgba(hex: string, alpha: number): number[] {
 		const r = parseInt(hex.slice(1, 3), 16);
 		const g = parseInt(hex.slice(3, 5), 16);
@@ -259,9 +276,9 @@
 
 	function updateLayerVisibility(layerConfigs: typeof $layers) {
 		for (const config of layerConfigs) {
-			const layer = assetLayers.get(config.id);
-			if (layer) {
-				layer.visible = config.visible;
+			const layers = assetLayers.get(config.id);
+			if (layers) {
+				layers.forEach(layer => layer.visible = config.visible);
 			}
 		}
 	}
@@ -489,12 +506,18 @@
 		};
 	}
 
-	// Exported function to zoom to a risk event's change geometry
+	// Minimum zoom level when viewing risk events (prevents zooming too far out)
+	const MIN_RISK_EVENT_ZOOM = 14;
+
+	export function clearHighlights(): void {
+		highlightLayer?.removeAll();
+	}
+
+	// Exported function to zoom to a risk event, keeping the asset visible
 	export async function zoomToRiskEvent(eventId: string): Promise<void> {
 		if (!mapView || !mapReady) return;
 
 		try {
-			// Fetch full event details including geometry
 			const event = await api.getRiskEvent(eventId);
 
 			if (!event.changeGeometry) {
@@ -505,23 +528,23 @@
 			const { default: Polygon } = await import('@arcgis/core/geometry/Polygon');
 			const { default: Point } = await import('@arcgis/core/geometry/Point');
 
-			let target: __esri.Geometry;
+			// Build change geometry
+			let changeTarget: __esri.Geometry;
 
 			if (event.changeGeometry.type === 'Polygon') {
-				target = new Polygon({
+				changeTarget = new Polygon({
 					rings: event.changeGeometry.coordinates as number[][][],
 					spatialReference: { wkid: 4326 }
 				});
 			} else if (event.changeGeometry.type === 'MultiPolygon') {
-				// For MultiPolygon, flatten to rings
 				const rings = (event.changeGeometry.coordinates as number[][][][]).flat();
-				target = new Polygon({
+				changeTarget = new Polygon({
 					rings: rings,
 					spatialReference: { wkid: 4326 }
 				});
 			} else if (event.changeGeometry.type === 'Point') {
 				const coords = event.changeGeometry.coordinates as number[];
-				target = new Point({
+				changeTarget = new Point({
 					x: coords[0],
 					y: coords[1],
 					spatialReference: { wkid: 4326 }
@@ -531,17 +554,168 @@
 				return;
 			}
 
-			// Zoom to the geometry with some padding
-			await mapView.goTo({
-				target: target,
-				zoom: target.type === 'point' ? 16 : undefined
-			}, {
-				duration: 500
-			});
+			// Build asset geometry if available
+			// Resolve an asset point closest to the change for zoom framing.
+			// For LineStrings (roads, pipelines), use the nearest vertex to the
+			// change centroid rather than the full geometry extent.
+			let assetPoint: __esri.Point | null = null;
+			const changeCentroid = changeTarget.type === 'point'
+				? changeTarget as __esri.Point
+				: (changeTarget as __esri.Polygon).centroid;
 
-			// Expand extent slightly if it's a polygon
-			if (target.type === 'polygon' && target.extent) {
-				await mapView.goTo(target.extent.expand(1.5), { duration: 300 });
+			if (event.assetGeometry) {
+				if (event.assetGeometry.type === 'Point') {
+					const coords = event.assetGeometry.coordinates as number[];
+					assetPoint = new Point({
+						x: coords[0],
+						y: coords[1],
+						spatialReference: { wkid: 4326 }
+					});
+				} else if (event.assetGeometry.type === 'LineString' || event.assetGeometry.type === 'MultiLineString') {
+					// Find the vertex nearest to the change centroid
+					const allCoords = event.assetGeometry.type === 'MultiLineString'
+						? (event.assetGeometry.coordinates as number[][][]).flat()
+						: event.assetGeometry.coordinates as number[][];
+					let bestDist = Infinity;
+					let bestCoord = allCoords[0];
+					for (const coord of allCoords) {
+						const dx = coord[0] - changeCentroid.x;
+						const dy = coord[1] - changeCentroid.y;
+						const d = dx * dx + dy * dy;
+						if (d < bestDist) {
+							bestDist = d;
+							bestCoord = coord;
+						}
+					}
+					assetPoint = new Point({
+						x: bestCoord[0],
+						y: bestCoord[1],
+						spatialReference: { wkid: 4326 }
+					});
+				} else if (event.assetGeometry.type === 'Polygon' || event.assetGeometry.type === 'MultiPolygon') {
+					const assetPoly = new Polygon({
+						rings: event.assetGeometry.type === 'MultiPolygon'
+							? (event.assetGeometry.coordinates as number[][][][]).flat()
+							: event.assetGeometry.coordinates as number[][][],
+						spatialReference: { wkid: 4326 }
+					});
+					assetPoint = assetPoly.centroid;
+				}
+			}
+
+			// Determine zoom target
+			if (changeTarget.type === 'point') {
+				await mapView.goTo({
+					target: changeTarget,
+					zoom: 16
+				}, { duration: 500 });
+			} else if (assetPoint) {
+				// Build a tight extent around the change centroid and the asset point
+				const { default: Extent } = await import('@arcgis/core/geometry/Extent');
+				const combined = new Extent({
+					xmin: Math.min(changeCentroid.x, assetPoint.x),
+					ymin: Math.min(changeCentroid.y, assetPoint.y),
+					xmax: Math.max(changeCentroid.x, assetPoint.x),
+					ymax: Math.max(changeCentroid.y, assetPoint.y),
+					spatialReference: { wkid: 4326 }
+				});
+				const padded = combined.expand(2.0);
+
+				await mapView.goTo(padded, { duration: 500 });
+
+				if (mapView.zoom < MIN_RISK_EVENT_ZOOM) {
+					await mapView.goTo({
+						target: assetPoint,
+						zoom: MIN_RISK_EVENT_ZOOM
+					}, { duration: 300 });
+				}
+			} else if (changeTarget.extent) {
+				await mapView.goTo(changeTarget.extent.expand(1.3), { duration: 500 });
+
+				if (mapView.zoom < MIN_RISK_EVENT_ZOOM) {
+					await mapView.goTo({
+						target: changeCentroid,
+						zoom: MIN_RISK_EVENT_ZOOM
+					}, { duration: 300 });
+				}
+			}
+
+			// Draw selection highlights
+			if (highlightLayer && map) {
+				highlightLayer.removeAll();
+				// Move highlight layer to top of stack so it draws above
+				// change polygons and asset layers
+				map.reorder(highlightLayer, map.layers.length - 1);
+
+				const { default: Graphic } = await import('@arcgis/core/Graphic');
+
+				// Highlight change polygon
+				if (changeTarget.type === 'polygon') {
+					highlightLayer.add(new Graphic({
+						geometry: changeTarget,
+						symbol: {
+							type: 'simple-fill',
+							style: 'diagonal-cross',
+							color: [0, 255, 255, 180],
+							outline: { color: [0, 255, 255], width: 3, style: 'solid' }
+						} as any
+					}));
+				}
+
+				// Highlight full asset geometry
+				if (event.assetGeometry) {
+					const { default: Polyline } = await import('@arcgis/core/geometry/Polyline');
+
+					let assetHighlightGeom: __esri.Geometry | null = null;
+					let assetHighlightSymbol: any = null;
+
+					if (event.assetGeometry.type === 'Point') {
+						assetHighlightGeom = new Point({
+							x: (event.assetGeometry.coordinates as number[])[0],
+							y: (event.assetGeometry.coordinates as number[])[1],
+							spatialReference: { wkid: 4326 }
+						});
+						assetHighlightSymbol = {
+							type: 'simple-marker',
+							color: [255, 255, 0, 200],
+							size: 14,
+							outline: { color: [255, 255, 0], width: 2 }
+						};
+					} else if (event.assetGeometry.type === 'LineString' || event.assetGeometry.type === 'MultiLineString') {
+						const paths = event.assetGeometry.type === 'MultiLineString'
+							? event.assetGeometry.coordinates as number[][][]
+							: [event.assetGeometry.coordinates as number[][]];
+						assetHighlightGeom = new Polyline({
+							paths,
+							spatialReference: { wkid: 4326 }
+						});
+						assetHighlightSymbol = {
+							type: 'simple-line',
+							color: [255, 255, 0],
+							width: 4
+						};
+					} else if (event.assetGeometry.type === 'Polygon' || event.assetGeometry.type === 'MultiPolygon') {
+						const rings = event.assetGeometry.type === 'MultiPolygon'
+							? (event.assetGeometry.coordinates as number[][][][]).flat()
+							: event.assetGeometry.coordinates as number[][][];
+						assetHighlightGeom = new Polygon({
+							rings,
+							spatialReference: { wkid: 4326 }
+						});
+						assetHighlightSymbol = {
+							type: 'simple-fill',
+							color: [255, 255, 0, 40],
+							outline: { color: [255, 255, 0], width: 3, style: 'solid' }
+						};
+					}
+
+					if (assetHighlightGeom && assetHighlightSymbol) {
+						highlightLayer.add(new Graphic({
+							geometry: assetHighlightGeom,
+							symbol: assetHighlightSymbol
+						}));
+					}
+				}
 			}
 		} catch (error) {
 			console.error('Failed to zoom to risk event:', error);

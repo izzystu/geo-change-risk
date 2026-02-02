@@ -161,7 +161,8 @@
 		return date.toLocaleDateString('en-US', {
 			year: 'numeric',
 			month: 'short',
-			day: 'numeric'
+			day: 'numeric',
+			timeZone: 'UTC'
 		});
 	}
 
@@ -290,7 +291,7 @@
 							{run.statusName}
 						</span>
 						<div class="header-right">
-							<span class="change-count">{run.changePolygonCount} changes</span>
+							<span class="change-count" title="{run.changePolygonCount} change polygons, {run.riskEventCount} risk events">{run.changePolygonCount} changes / {run.riskEventCount} events</span>
 							<button
 								class="delete-btn"
 								on:click={(e) => handleDeleteClick(e, run)}

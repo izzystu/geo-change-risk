@@ -12,9 +12,11 @@
 	let apiStatus: 'loading' | 'connected' | 'error' = 'loading';
 	let mapViewComponent: MapView;
 
-	function handleRiskEventClick(eventId: string) {
-		if (mapViewComponent?.zoomToRiskEvent) {
-			mapViewComponent.zoomToRiskEvent(eventId);
+	function handleRiskEventClick(eventId: string | null) {
+		if (eventId) {
+			mapViewComponent?.zoomToRiskEvent(eventId);
+		} else {
+			mapViewComponent?.clearHighlights();
 		}
 	}
 
