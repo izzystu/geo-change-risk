@@ -195,6 +195,16 @@ def get_feature_name(feature: dict, source: str, index: int) -> str:
     elif source == "osm_roads":
         return props.get("name", f"Road {index + 1}")
 
+    elif source == "osm_power":
+        power_type = props.get("power", "")
+        if power_type in ("line", "minor_line"):
+            return f"Power Line {index + 1}"
+        elif power_type == "tower":
+            return f"Power Tower {index + 1}"
+        elif power_type == "pole":
+            return f"Power Pole {index + 1}"
+        return f"Power Feature {index + 1}"
+
     elif source == "cec_transmission":
         owner = props.get("OWNER", "")
         voltage = props.get("VOLTAGE", "")

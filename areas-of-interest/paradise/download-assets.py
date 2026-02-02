@@ -648,7 +648,8 @@ def download_hifld_layer(url, filename):
 
 def filter_geojson_to_bbox(geojson):
     """Filter GeoJSON features to bounding box. Auto-detects coordinate system."""
-    from shapely.geometry import shape, box
+    from shapely.geometry import shape, box, mapping
+    from shapely.ops import transform as shapely_transform
     from pyproj import Transformer
 
     features = geojson.get("features", [])
@@ -664,12 +665,16 @@ def filter_geojson_to_bbox(geojson):
         is_web_mercator = False
 
     # Create bbox polygon in appropriate CRS
+    reverse_transformer = None
     if is_web_mercator:
-        # Transform bbox from WGS84 to Web Mercator
+        # Transform bbox from WGS84 to Web Mercator for filtering
         transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
         min_x, min_y = transformer.transform(BBOX['min_lon'], BBOX['min_lat'])
         max_x, max_y = transformer.transform(BBOX['max_lon'], BBOX['max_lat'])
         bbox_polygon = box(min_x, min_y, max_x, max_y)
+        # Prepare reverse transformer to reproject features to WGS84
+        reverse_transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+        print(f"  Detected Web Mercator coordinates, will reproject to WGS84")
     else:
         bbox_polygon = box(BBOX['min_lon'], BBOX['min_lat'], BBOX['max_lon'], BBOX['max_lat'])
 
@@ -678,6 +683,10 @@ def filter_geojson_to_bbox(geojson):
         try:
             geom = shape(feature["geometry"])
             if geom.intersects(bbox_polygon):
+                if reverse_transformer:
+                    geom_wgs84 = shapely_transform(reverse_transformer.transform, geom)
+                    feature = dict(feature)  # shallow copy
+                    feature["geometry"] = mapping(geom_wgs84)
                 filtered_features.append(feature)
         except Exception:
             continue
