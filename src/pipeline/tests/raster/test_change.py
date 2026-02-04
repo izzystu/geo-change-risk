@@ -2,7 +2,7 @@
 
 import pytest
 
-from georisk.raster.change import _classify_change
+from georisk.raster.change import ChangePolygon, _classify_change
 
 
 # ---------------------------------------------------------------------------
@@ -114,3 +114,98 @@ class TestClassifyChangeWithLandCover:
 
     def test_minor_with_crop_is_still_unknown(self):
         assert _classify_change(-0.1, "AnnualCrop") == "Unknown"
+
+
+# ---------------------------------------------------------------------------
+# change_type_map consistency
+# ---------------------------------------------------------------------------
+
+class TestChangeTypeMap:
+    """Tests for ChangePolygon.to_dict() change_type_map values."""
+
+    def _get_change_type_map(self):
+        """Extract the change_type_map from a ChangePolygon instance."""
+        from shapely.geometry import box
+        cp = ChangePolygon(
+            geometry=box(0, 0, 1, 1),
+            area_sq_meters=100.0,
+            ndvi_drop_mean=-0.3,
+            ndvi_drop_max=-0.5,
+        )
+        # Build the map the same way to_dict does
+        return {
+            "Unknown": 0,
+            "VegetationLoss": 1,
+            "VegetationGain": 2,
+            "FireBurnScar": 3,
+            "DroughtStress": 4,
+            "AgriculturalChange": 5,
+            "LandslideDebris": 6,
+        }
+
+    def test_values_are_sequential_0_to_6(self):
+        """Map values should be sequential integers 0 through 6."""
+        from shapely.geometry import box
+        cp = ChangePolygon(
+            geometry=box(0, 0, 1, 1),
+            area_sq_meters=100.0,
+            ndvi_drop_mean=-0.3,
+            ndvi_drop_max=-0.5,
+            change_type="Unknown",
+        )
+        d = cp.to_dict()
+        assert d["changeType"] == 0
+
+        # Verify each expected mapping via to_dict
+        expected = {
+            "Unknown": 0,
+            "VegetationLoss": 1,
+            "VegetationGain": 2,
+            "FireBurnScar": 3,
+            "DroughtStress": 4,
+            "AgriculturalChange": 5,
+            "LandslideDebris": 6,
+        }
+        for name, value in expected.items():
+            cp.change_type = name
+            d = cp.to_dict()
+            assert d["changeType"] == value, f"{name} should map to {value}"
+
+        assert sorted(expected.values()) == list(range(7))
+
+    def test_classify_change_returns_exist_in_map(self):
+        """Every value _classify_change can return must exist in change_type_map."""
+        valid_types = {"Unknown", "VegetationLoss", "VegetationGain",
+                       "FireBurnScar", "DroughtStress", "AgriculturalChange",
+                       "LandslideDebris"}
+
+        # Test a broad range of inputs and land cover classes
+        test_cases = [
+            (-0.6, None), (-0.5, "Forest"), (-0.5, "AnnualCrop"),
+            (-0.5, "PermanentCrop"), (-0.5, "Residential"),
+            (-0.3, None), (-0.3, "AnnualCrop"), (-0.3, "HerbaceousVegetation"),
+            (-0.3, "Pasture"), (-0.1, None), (0.0, None), (0.3, None),
+        ]
+        for ndvi_drop, land_cover in test_cases:
+            result = _classify_change(ndvi_drop, land_cover)
+            assert result in valid_types, (
+                f"_classify_change({ndvi_drop}, {land_cover!r}) returned "
+                f"{result!r} which is not in the map"
+            )
+
+    def test_removed_types_absent(self):
+        """UrbanExpansion, WaterChange, VegetationClearing must not be in the map."""
+        from shapely.geometry import box
+        cp = ChangePolygon(
+            geometry=box(0, 0, 1, 1),
+            area_sq_meters=100.0,
+            ndvi_drop_mean=-0.3,
+            ndvi_drop_max=-0.5,
+        )
+        for removed_type in ("UrbanExpansion", "WaterChange", "VegetationClearing"):
+            cp.change_type = removed_type
+            d = cp.to_dict()
+            # Unknown types fall back to 0 (Unknown)
+            assert d["changeType"] == 0, (
+                f"Removed type {removed_type!r} should fall back to 0 (Unknown)"
+            )

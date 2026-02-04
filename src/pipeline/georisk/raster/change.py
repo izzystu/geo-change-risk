@@ -42,12 +42,10 @@ class ChangePolygon:
             "Unknown": 0,
             "VegetationLoss": 1,
             "VegetationGain": 2,
-            "UrbanExpansion": 3,
-            "WaterChange": 4,
-            "FireBurnScar": 5,
+            "FireBurnScar": 3,
+            "DroughtStress": 4,
+            "AgriculturalChange": 5,
             "LandslideDebris": 6,
-            "DroughtStress": 7,
-            "AgriculturalChange": 8,
         }
         change_type_int = change_type_map.get(self.change_type, 0)
 

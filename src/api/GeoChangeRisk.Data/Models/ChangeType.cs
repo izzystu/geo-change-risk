@@ -14,24 +14,15 @@ public enum ChangeType
     /// <summary>Vegetation growth or recovery detected</summary>
     VegetationGain = 2,
 
-    /// <summary>Urban or built-up area expansion</summary>
-    UrbanExpansion = 3,
-
-    /// <summary>Water body changes (flooding, drought)</summary>
-    WaterChange = 4,
-
     /// <summary>Wildfire burn scar (ML-classified)</summary>
-    FireBurnScar = 10,
-
-    /// <summary>Landslide or debris flow (ML-classified)</summary>
-    LandslideDebris = 11,
+    FireBurnScar = 3,
 
     /// <summary>Drought stress in vegetation (ML-classified)</summary>
-    DroughtStress = 12,
-
-    /// <summary>Intentional vegetation clearing (ML-classified)</summary>
-    VegetationClearing = 13,
+    DroughtStress = 4,
 
     /// <summary>Agricultural activity change (ML-classified)</summary>
-    AgriculturalChange = 14
+    AgriculturalChange = 5,
+
+    /// <summary>Landslide or debris flow (ML-classified)</summary>
+    LandslideDebris = 6,
 }
