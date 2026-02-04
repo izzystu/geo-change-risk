@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/OWNER/geo-change-risk/tree/master/docs
+    about: Check the docs folder for testing runbooks and architecture info.
