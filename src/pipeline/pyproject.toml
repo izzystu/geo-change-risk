@@ -42,6 +42,7 @@ ml = [
     "torch>=2.0",
     "torchvision>=0.15",
     "torchgeo>=0.6",
+    "segmentation-models-pytorch>=0.3.3",
 ]
 dev = [
     "pytest>=8.0.0",

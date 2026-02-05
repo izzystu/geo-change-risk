@@ -65,6 +65,10 @@ class MlConfig:
     enabled: bool = True
     landcover_enabled: bool = True
     landcover_backbone: str = "resnet18"  # "resnet18" or "resnet50"
+    landslide_enabled: bool = True
+    landslide_model_path: str | None = None
+    landslide_confidence_threshold: float = 0.5
+    landslide_slope_threshold_deg: float = 10.0
     device: str = "auto"  # "cpu", "cuda", "auto"
 
 
@@ -132,6 +136,14 @@ class Config:
                 self.ml.landcover_backbone = ml["landcover_backbone"]
             if "device" in ml:
                 self.ml.device = ml["device"]
+            if "landslide_enabled" in ml:
+                self.ml.landslide_enabled = bool(ml["landslide_enabled"])
+            if "landslide_model_path" in ml:
+                self.ml.landslide_model_path = ml["landslide_model_path"]
+            if "landslide_confidence_threshold" in ml:
+                self.ml.landslide_confidence_threshold = float(ml["landslide_confidence_threshold"])
+            if "landslide_slope_threshold_deg" in ml:
+                self.ml.landslide_slope_threshold_deg = float(ml["landslide_slope_threshold_deg"])
 
         if "change_detection" in data:
             cd = data["change_detection"]
@@ -185,6 +197,14 @@ class Config:
             self.ml.landcover_backbone = landcover_backbone
         if ml_device := os.getenv("ML_DEVICE"):
             self.ml.device = ml_device
+        if landslide_enabled := os.getenv("LANDSLIDE_ENABLED"):
+            self.ml.landslide_enabled = landslide_enabled.lower() in ("true", "1", "yes")
+        if landslide_model_path := os.getenv("LANDSLIDE_MODEL_PATH"):
+            self.ml.landslide_model_path = landslide_model_path
+        if landslide_threshold := os.getenv("LANDSLIDE_CONFIDENCE_THRESHOLD"):
+            self.ml.landslide_confidence_threshold = float(landslide_threshold)
+        if landslide_slope := os.getenv("LANDSLIDE_SLOPE_THRESHOLD_DEG"):
+            self.ml.landslide_slope_threshold_deg = float(landslide_slope)
 
         # Terrain
         if terrain_enabled := os.getenv("TERRAIN_ENABLED"):

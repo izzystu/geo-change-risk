@@ -34,10 +34,10 @@ EUROSAT_CLASSES: list[str] = [
     "SeaLake",
 ]
 
-# All 13 Sentinel-2 bands in EuroSAT order
+# All 13 Sentinel-2 bands in TorchGeo EuroSAT order (B8A is last)
 EUROSAT_BANDS: list[str] = [
     "B01", "B02", "B03", "B04", "B05", "B06", "B07",
-    "B08", "B8A", "B09", "B10", "B11", "B12",
+    "B08", "B09", "B10", "B11", "B12", "B8A",
 ]
 
 # Land cover risk multipliers: how much a change on this land cover type
@@ -55,19 +55,15 @@ LANDCOVER_RISK_MULTIPLIERS: dict[str, float] = {
     "Highway": 0.25,
 }
 
-# EuroSAT per-band normalization statistics (Sentinel-2 L2A reflectance values).
-# These are approximate mean/std values for the EuroSAT dataset.
-EUROSAT_BAND_MEANS = [
-    1354.0, 1118.0, 1042.0, 947.0, 1199.0, 2003.0, 2374.0,
-    2301.0, 732.0, 12.0, 1820.0, 1118.0, 1042.0,
-]
-EUROSAT_BAND_STDS = [
-    245.0, 333.0, 395.0, 593.0, 566.0, 729.0, 1096.0,
-    1042.0, 467.0, 47.0, 1002.0, 761.0, 632.0,
-]
+# The pretrained SENTINEL2_ALL_MOCO weights expect raw Sentinel-2 reflectance
+# divided by 10,000 (mapping typical values to the 0-1 range).
+EUROSAT_NORMALIZE_DIVISOR = 10_000.0
 
-# EuroSAT input patch size
+# EuroSAT spatial patch size (matches EuroSAT dataset native 64x64 pixel patches)
 EUROSAT_PATCH_SIZE = 64
+
+# Model input size expected by the pretrained weights (Resize(256) → CenterCrop(224))
+EUROSAT_MODEL_INPUT_SIZE = 224
 
 # Module-level model cache
 _cached_model: "LandCoverModel | None" = None
@@ -257,11 +253,15 @@ def classify_polygon_landcover(
         if patch is None:
             return None
 
-        # Normalize with EuroSAT statistics
+        # Normalize (divide by 10,000 per pretrained weight convention)
         patch_normalized = _normalize_patch(patch)
 
-        # Convert to tensor and run inference
+        # Convert to tensor and resize to model input size (224x224)
         tensor = torch.tensor(patch_normalized, dtype=torch.float32).unsqueeze(0)
+        tensor = torch.nn.functional.interpolate(
+            tensor, size=(EUROSAT_MODEL_INPUT_SIZE, EUROSAT_MODEL_INPUT_SIZE),
+            mode="bilinear", align_corners=False,
+        )
         tensor = tensor.to(model.device)
 
         with torch.no_grad():
@@ -369,18 +369,15 @@ def _extract_patch(
 
 
 def _normalize_patch(patch: np.ndarray) -> np.ndarray:
-    """Normalize a patch using EuroSAT band-level statistics.
+    """Normalize a patch for EuroSAT inference.
+
+    The pretrained SENTINEL2_ALL_MOCO weights expect raw Sentinel-2 reflectance
+    divided by 10,000 (mapping typical values to the 0-1 range).
 
     Args:
-        patch: Array of shape (num_bands, 64, 64).
+        patch: Array of shape (num_bands, H, W).
 
     Returns:
-        Normalized array of the same shape.
+        Normalized array of the same shape as float32.
     """
-    normalized = np.zeros_like(patch)
-    for i in range(min(patch.shape[0], len(EUROSAT_BAND_MEANS))):
-        if EUROSAT_BAND_STDS[i] > 0:
-            normalized[i] = (patch[i] - EUROSAT_BAND_MEANS[i]) / EUROSAT_BAND_STDS[i]
-        else:
-            normalized[i] = patch[i]
-    return normalized
+    return patch.astype(np.float32) / EUROSAT_NORMALIZE_DIVISOR

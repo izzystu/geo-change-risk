@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 
 from georisk.raster.landcover import (
-    EUROSAT_BAND_MEANS,
-    EUROSAT_BAND_STDS,
     EUROSAT_BANDS,
     EUROSAT_CLASSES,
+    EUROSAT_MODEL_INPUT_SIZE,
+    EUROSAT_NORMALIZE_DIVISOR,
     EUROSAT_PATCH_SIZE,
     LANDCOVER_RISK_MULTIPLIERS,
     _normalize_patch,
@@ -41,17 +41,18 @@ class TestEurosatConstants:
         for band in ["B02", "B03", "B04", "B08"]:
             assert band in EUROSAT_BANDS
 
-    def test_normalization_stats_length_matches_bands(self):
-        assert len(EUROSAT_BAND_MEANS) == len(EUROSAT_BANDS)
-        assert len(EUROSAT_BAND_STDS) == len(EUROSAT_BANDS)
-
-    def test_band_stds_are_positive(self):
-        """Standard deviations should be positive (used as denominators)."""
-        for i, std in enumerate(EUROSAT_BAND_STDS):
-            assert std > 0, f"Band {i} ({EUROSAT_BANDS[i]}) has non-positive std: {std}"
+    def test_b8a_is_last_band(self):
+        """B8A must be the last band to match TorchGeo EuroSAT ordering."""
+        assert EUROSAT_BANDS[-1] == "B8A"
 
     def test_patch_size_is_64(self):
         assert EUROSAT_PATCH_SIZE == 64
+
+    def test_model_input_size_is_224(self):
+        assert EUROSAT_MODEL_INPUT_SIZE == 224
+
+    def test_normalize_divisor_is_10000(self):
+        assert EUROSAT_NORMALIZE_DIVISOR == 10_000.0
 
 
 # ---------------------------------------------------------------------------
@@ -86,57 +87,44 @@ class TestLandcoverRiskMultipliers:
 
 
 # ---------------------------------------------------------------------------
-# Patch normalization
+# Patch normalization (divide-by-10,000)
 # ---------------------------------------------------------------------------
 
 class TestNormalizePatch:
-    """Tests for _normalize_patch which applies per-band z-score normalization."""
+    """Tests for _normalize_patch which divides by 10,000."""
 
     def test_output_shape_matches_input(self):
         patch = np.ones((13, 64, 64), dtype=np.float32) * 1000
         result = _normalize_patch(patch)
         assert result.shape == patch.shape
 
-    def test_zero_input_normalized_to_negative(self):
-        """An all-zero input should produce negative values (0 - mean) / std."""
+    def test_output_is_float32(self):
+        patch = np.ones((13, 64, 64), dtype=np.uint16) * 1000
+        result = _normalize_patch(patch)
+        assert result.dtype == np.float32
+
+    def test_typical_reflectance_maps_to_expected_range(self):
+        """Typical Sentinel-2 reflectance (500-3000) should map to 0.05-0.30."""
+        patch = np.ones((13, 64, 64), dtype=np.float32) * 2000
+        result = _normalize_patch(patch)
+        np.testing.assert_allclose(result, 0.2, atol=1e-6)
+
+    def test_zero_input_maps_to_zero(self):
         patch = np.zeros((13, 64, 64), dtype=np.float32)
         result = _normalize_patch(patch)
+        np.testing.assert_allclose(result, 0.0, atol=1e-6)
 
-        for i in range(13):
-            expected = -EUROSAT_BAND_MEANS[i] / EUROSAT_BAND_STDS[i]
-            np.testing.assert_allclose(result[i], expected, atol=1e-5)
-
-    def test_mean_input_normalized_to_zero(self):
-        """When each band equals its mean, normalized value should be ~0."""
-        patch = np.zeros((13, 64, 64), dtype=np.float32)
-        for i in range(13):
-            patch[i] = EUROSAT_BAND_MEANS[i]
-
+    def test_ten_thousand_maps_to_one(self):
+        patch = np.ones((13, 64, 64), dtype=np.float32) * 10_000
         result = _normalize_patch(patch)
+        np.testing.assert_allclose(result, 1.0, atol=1e-6)
 
-        for i in range(13):
-            np.testing.assert_allclose(result[i], 0.0, atol=1e-5)
-
-    def test_one_std_above_mean_is_one(self):
-        """Input at mean + 1*std should normalize to ~1.0."""
-        patch = np.zeros((13, 64, 64), dtype=np.float32)
-        for i in range(13):
-            patch[i] = EUROSAT_BAND_MEANS[i] + EUROSAT_BAND_STDS[i]
-
-        result = _normalize_patch(patch)
-
-        for i in range(13):
-            np.testing.assert_allclose(result[i], 1.0, atol=1e-5)
-
-    def test_fewer_bands_than_stats(self):
-        """If patch has fewer bands than stats arrays, only those bands are normalized."""
-        patch = np.ones((4, 64, 64), dtype=np.float32) * 1000
+    def test_fewer_bands_still_works(self):
+        """Normalization should work with any number of bands."""
+        patch = np.ones((4, 64, 64), dtype=np.float32) * 5000
         result = _normalize_patch(patch)
         assert result.shape == (4, 64, 64)
-        # Should still produce valid normalized values for the first 4 bands
-        for i in range(4):
-            expected = (1000 - EUROSAT_BAND_MEANS[i]) / EUROSAT_BAND_STDS[i]
-            np.testing.assert_allclose(result[i], expected, atol=1e-5)
+        np.testing.assert_allclose(result, 0.5, atol=1e-6)
 
 
 # ---------------------------------------------------------------------------
