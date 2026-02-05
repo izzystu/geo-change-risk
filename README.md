@@ -2,7 +2,7 @@
 
 Geospatial risk intelligence for critical infrastructure. Detects land-surface changes from satellite imagery, scores threat severity using terrain and proximity analysis, and delivers actionable risk events to asset operators.
 
-*Built as a portfolio project by a senior geospatial software architect with 25+ years spanning GIS, cloud platforms, and applied AI — from cartography and petroleum mapping through real-time medical systems to satellite remote sensing.*
+*Designed and built by a senior geospatial software architect with 25+ years spanning GIS, cloud platforms, and applied AI — from cartography and petroleum mapping through real-time medical systems to satellite remote sensing.*
 
 ## Screenshots
 
