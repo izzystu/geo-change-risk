@@ -6,10 +6,10 @@
     "min_lon": -121.70,
     "min_lat": 39.70,
     "max_lon": -121.55,
-    "max_lat": 39.74,
-    "_note": "max_lat reduced from 39.85 to 39.74 to fit within Sentinel-2 tile T10SFJ (see Known Limitations in IMPLEMENTATION-PLAN.md)"
+    "max_lat": 39.76,
+    "_note": "Extended north to 39.76 for landslide validation coverage (Honey Run Road, Butte Creek Canyon). min_lon kept at -121.70 to stay within Sentinel-2 tile T10SFJ (extending west crosses into T10SEJ)."
   },
-  "center": [-121.62, 39.72],
+  "center": [-121.625, 39.73],
   "data_sources": {
     "osm": {
       "buildings": true,

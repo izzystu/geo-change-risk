@@ -4,9 +4,9 @@ This AOI covers the area affected by the 2018 Camp Fire, the deadliest and most 
 
 ## Location
 
-- **Center**: -121.62, 39.76 (lon, lat)
-- **Bounding Box**: [-121.70, 39.70, -121.55, 39.85]
-- **Area**: Approximately 15km x 17km
+- **Center**: -121.625, 39.73 (lon, lat)
+- **Bounding Box**: [-121.70, 39.70, -121.55, 39.76]
+- **Area**: Approximately 13km x 7km
 
 ## Data Sources
 
