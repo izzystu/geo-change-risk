@@ -87,6 +87,29 @@ def load_dem_for_bbox(
         return None
 
 
+def _resolution_to_meters(
+    res_x: float,
+    res_y: float,
+    crs: Any,
+    center_lat: float,
+) -> float:
+    """Convert pixel resolution to meters, handling geographic CRS (degrees).
+
+    When the DEM is in a geographic CRS (e.g. EPSG:4326), pixel spacing is in
+    degrees.  The Horn slope algorithm needs cell size in meters, so we convert
+    using the latitude-dependent degree-to-meter approximation.
+    """
+    avg_res = (res_x + res_y) / 2
+    crs_obj = CRS.from_user_input(crs) if crs else None
+    if crs_obj and crs_obj.is_geographic:
+        lat_rad = math.radians(center_lat)
+        m_per_deg_lat = 111_320
+        m_per_deg_lon = 111_320 * math.cos(lat_rad)
+        m_per_deg = (m_per_deg_lat + m_per_deg_lon) / 2
+        avg_res = avg_res * m_per_deg
+    return avg_res
+
+
 def _load_3dep_dem(
     bbox: tuple[float, float, float, float],
     cache_dir: Path | None = None,
@@ -158,16 +181,17 @@ def _load_3dep_dem(
         if da.ndim == 3 and da.shape[0] == 1:
             da = da.squeeze("band", drop=True)
 
-        # Calculate resolution in meters
+        # Calculate resolution in meters (convert from degrees if geographic CRS)
         res_x = abs(float(da.rio.resolution()[0]))
         res_y = abs(float(da.rio.resolution()[1]))
-        resolution_m = (res_x + res_y) / 2
+        center_lat = (bbox[1] + bbox[3]) / 2
+        resolution_m = _resolution_to_meters(res_x, res_y, dem_crs, center_lat)
 
         logger.info(
             "DEM loaded",
             shape=da.shape,
             crs=str(dem_crs),
-            resolution_m=resolution_m,
+            resolution_m=round(resolution_m, 2),
         )
 
         return DEMData(
@@ -219,7 +243,8 @@ def _load_local_dem(dem_path: Path, bbox: tuple[float, float, float, float]) -> 
 
         res_x = abs(float(da.rio.resolution()[0]))
         res_y = abs(float(da.rio.resolution()[1]))
-        resolution_m = (res_x + res_y) / 2
+        center_lat = (bbox[1] + bbox[3]) / 2
+        resolution_m = _resolution_to_meters(res_x, res_y, dem_crs, center_lat)
 
         return DEMData(
             elevation=da,
@@ -253,7 +278,7 @@ def calculate_slope_aspect(dem: DEMData) -> DEMData:
     if nodata_mask.any():
         elev = np.where(nodata_mask, 0, elev)
 
-    # Cell size in meters (assumes projected CRS or approximately equal resolution)
+    # Cell size in meters (converted from degrees by _resolution_to_meters if needed)
     cell_size = dem.resolution_m
 
     # Calculate gradients using Sobel-like filters (Horn algorithm)

@@ -19,15 +19,20 @@ from georisk.stac.search import search_scenes, find_scene_pair
 from georisk.storage.minio import MinioStorage
 
 # Configure structlog for CLI output
+import logging
+
+logging.basicConfig(format="%(message)s", level=logging.INFO)
+
 structlog.configure(
     processors=[
+        structlog.stdlib.filter_by_level,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.dev.ConsoleRenderer(colors=True),
     ],
     wrapper_class=structlog.stdlib.BoundLogger,
     context_class=dict,
-    logger_factory=structlog.PrintLoggerFactory(),
+    logger_factory=structlog.stdlib.LoggerFactory(),
 )
 
 logger = structlog.get_logger()
@@ -112,6 +117,7 @@ def search(aoi_id: str, date_range: str, max_cloud: float, limit: int, output: P
               help="DEM source for terrain analysis (3dep=USGS 3DEP, local=local file, none=disable)")
 @click.option("--skip-terrain", is_flag=True, help="Skip terrain analysis")
 @click.option("--skip-landcover", is_flag=True, help="Skip ML land cover classification")
+@click.option("--skip-landslide", is_flag=True, help="Skip ML landslide detection")
 @click.option("--dry-run", is_flag=True, help="Simulate without API updates")
 @click.pass_context
 def process(
@@ -127,6 +133,7 @@ def process(
     dem_source: str,
     skip_terrain: bool,
     skip_landcover: bool,
+    skip_landslide: bool,
     dry_run: bool,
 ) -> None:
     """Process imagery and detect changes for an AOI."""
@@ -268,6 +275,9 @@ def process(
             elif skip_terrain:
                 click.echo("\n3b. Terrain analysis skipped (--skip-terrain)")
 
+            # Initialize scene_bands so it can be reused by both land cover and landslide blocks
+            scene_bands = None
+
             # Land cover classification (if enabled and ML deps available)
             if not skip_landcover and changes.polygons:
                 click.echo("\n3c. Classifying land cover...")
@@ -320,6 +330,60 @@ def process(
                     click.echo(f"  Warning: Land cover classification failed ({e}), continuing without")
             elif skip_landcover:
                 click.echo("\n3c. Land cover classification skipped (--skip-landcover)")
+
+            # Landslide detection (if enabled, ML deps available, and terrain data exists)
+            if not skip_landslide and dem_data is not None and changes.polygons:
+                click.echo("\n3d. Running landslide detection...")
+                try:
+                    from georisk.raster.landslide import (
+                        is_landslide_available,
+                        load_landslide_model,
+                        classify_polygon_landslide,
+                        LANDSLIDE_SENTINEL_BANDS,
+                    )
+
+                    if is_landslide_available():
+                        ls_model = load_landslide_model()
+
+                        # Load 12-band scene for landslide model (excludes B8A,
+                        # different from landcover's 13 bands)
+                        from georisk.raster.landcover import load_scene_bands
+                        ls_scene_bands = load_scene_bands(
+                            before_scene, bbox, bands=LANDSLIDE_SENTINEL_BANDS,
+                        )
+
+                        if ls_scene_bands is not None:
+                            candidates = 0
+                            landslide_count = 0
+                            for change in changes.polygons:
+                                if (change.slope_degree_mean or 0) >= 10.0:
+                                    candidates += 1
+                                    result = classify_polygon_landslide(
+                                        ls_scene_bands, dem_data, change.geometry, ls_model,
+                                    )
+                                    if result is not None and result.is_landslide:
+                                        change.change_type = "LandslideDebris"
+                                        change.ml_confidence = result.landslide_probability
+                                        change.ml_model_version = result.model_version
+                                        landslide_count += 1
+                            click.echo(
+                                f"  Analyzed {candidates} steep-terrain polygons, "
+                                f"classified {landslide_count} as landslides"
+                            )
+                        else:
+                            click.echo("  Warning: Could not load scene bands, skipping")
+                    else:
+                        click.echo("  ML dependencies not installed (pip install -e '.[ml]'), skipping")
+                except FileNotFoundError as e:
+                    click.echo(f"  Warning: {e}")
+                except ImportError as e:
+                    click.echo(f"  Warning: Landslide module not available ({e}), skipping")
+                except Exception as e:
+                    click.echo(f"  Warning: Landslide detection failed ({e}), continuing without")
+            elif skip_landslide:
+                click.echo("\n3d. Landslide detection skipped (--skip-landslide)")
+            elif dem_data is None and not skip_landslide:
+                click.echo("\n3d. Landslide detection skipped (no terrain data)")
 
             # Track created polygon IDs for risk event mapping
             created_polygon_ids: list[str] = []

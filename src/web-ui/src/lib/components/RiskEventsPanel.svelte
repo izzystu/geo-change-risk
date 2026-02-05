@@ -22,8 +22,8 @@
 
 	// Take Action dialog state
 	let actionDialogOpen = false;
-	let actionDialogAssetName = '';
-	let actionDialogRiskLevel = '';
+	let actionDialogEvent: RiskEvent | null = null;
+	let actionDialogDetail: RiskEvent | null = null;
 
 	const riskLevels = [
 		{ value: null, label: 'All' },
@@ -125,11 +125,22 @@
 		}
 	}
 
-	function handleTakeAction(event: Event, assetName: string, riskLevelName: string) {
-		event.stopPropagation();
-		actionDialogAssetName = assetName;
-		actionDialogRiskLevel = riskLevelName;
+	async function handleTakeAction(evt: Event, riskEvent: RiskEvent) {
+		evt.stopPropagation();
+		actionDialogEvent = riskEvent;
+		actionDialogDetail = null;
 		actionDialogOpen = true;
+
+		// Reuse cached detail if this event is already expanded, otherwise fetch
+		if (expandedEventId === riskEvent.riskEventId && expandedEventDetail) {
+			actionDialogDetail = expandedEventDetail;
+		} else {
+			try {
+				actionDialogDetail = await api.getRiskEvent(riskEvent.riskEventId);
+			} catch (err) {
+				console.error('Failed to load event detail for action dialog:', err);
+			}
+		}
 	}
 
 	function setRiskLevelFilter(level: number | null) {
@@ -143,9 +154,9 @@
 
 <TakeActionDialog
 	bind:open={actionDialogOpen}
-	assetName={actionDialogAssetName}
-	riskLevelName={actionDialogRiskLevel}
-	onClose={() => { actionDialogOpen = false; }}
+	event={actionDialogEvent}
+	detail={actionDialogDetail}
+	onClose={() => { actionDialogOpen = false; actionDialogEvent = null; actionDialogDetail = null; }}
 />
 
 <div class="risk-events-panel">
@@ -245,7 +256,7 @@
 							<button
 								class="action-btn act-btn"
 								title="Take action"
-								on:click={(e) => handleTakeAction(e, event.assetName, event.riskLevelName)}
+								on:click={(e) => handleTakeAction(e, event)}
 							>
 								Act
 							</button>
@@ -400,8 +411,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.375rem;
-		max-height: 300px;
-		overflow-y: auto;
 	}
 
 	.event-item {

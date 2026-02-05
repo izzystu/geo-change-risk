@@ -93,6 +93,8 @@ def download_osm_buildings():
     [out:json][timeout:180];
     (
       way["building"]({OVERPASS_BBOX});
+      node["building"]({OVERPASS_BBOX});
+      relation["building"]({OVERPASS_BBOX});
     );
     out body;
     >;

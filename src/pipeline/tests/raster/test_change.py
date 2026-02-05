@@ -193,6 +193,19 @@ class TestChangeTypeMap:
                 f"{result!r} which is not in the map"
             )
 
+    def test_landslide_debris_maps_to_6(self):
+        """LandslideDebris should map to integer 6."""
+        from shapely.geometry import box
+        cp = ChangePolygon(
+            geometry=box(0, 0, 1, 1),
+            area_sq_meters=100.0,
+            ndvi_drop_mean=-0.3,
+            ndvi_drop_max=-0.5,
+            change_type="LandslideDebris",
+        )
+        d = cp.to_dict()
+        assert d["changeType"] == 6
+
     def test_removed_types_absent(self):
         """UrbanExpansion, WaterChange, VegetationClearing must not be in the map."""
         from shapely.geometry import box

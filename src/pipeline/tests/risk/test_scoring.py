@@ -880,3 +880,134 @@ class TestLandCoverMultiplier:
             scores[lc] = scorer.calculate_risk_score(change, proximity).score
 
         assert scores["Forest"] > scores["AnnualCrop"] >= scores["Highway"]
+
+
+# ---------------------------------------------------------------------------
+# Landslide scoring
+# ---------------------------------------------------------------------------
+
+class TestLandslideScoring:
+    """Tests for the landslide detection multiplier in scoring."""
+
+    def test_landslide_scores_higher_than_vegetation_loss(self):
+        """A LandslideDebris polygon should score higher than an equivalent VegetationLoss."""
+        scorer = RiskScorer()
+        proximity = _make_proximity(
+            criticality=1, criticality_name="Medium", elevation_diff_m=50.0,
+        )
+
+        change_veg = _make_change(change_type="VegetationLoss")
+        change_ls = _make_change(change_type="LandslideDebris")
+
+        score_veg = scorer.calculate_risk_score(change_veg, proximity).score
+        score_ls = scorer.calculate_risk_score(change_ls, proximity).score
+
+        assert score_ls > score_veg
+
+    def test_upslope_landslide_scores_higher_than_level(self):
+        """An upslope landslide should score higher than one on level terrain."""
+        scorer = RiskScorer()
+
+        # Use low base values so compounding multipliers don't both cap at 100
+        change = _make_change(
+            change_type="LandslideDebris",
+            ndvi_drop_mean=-0.15,  # Below threshold = 0 points
+            area_sq_meters=3000,   # Below threshold = 0 points
+            slope_degree_mean=16.0,
+            aspect_degrees=None,
+        )
+
+        prox_upslope = _make_proximity(
+            distance_meters=800.0,
+            criticality=0, criticality_name="Low",
+            elevation_diff_m=50.0,
+        )
+        prox_level = _make_proximity(
+            distance_meters=800.0,
+            criticality=0, criticality_name="Low",
+            elevation_diff_m=0.0,
+        )
+
+        score_upslope = scorer.calculate_risk_score(change, prox_upslope).score
+        score_level = scorer.calculate_risk_score(change, prox_level).score
+
+        assert score_upslope > score_level
+
+    def test_non_landslide_has_no_landslide_factor(self):
+        """VegetationLoss polygons should not have a 'Landslide Detection' factor."""
+        scorer = RiskScorer()
+        change = _make_change(change_type="VegetationLoss")
+        proximity = _make_proximity()
+
+        result = scorer.calculate_risk_score(change, proximity)
+        factor_names = [f.name for f in result.factors]
+
+        assert "Landslide Detection" not in factor_names
+
+    def test_landslide_factor_present(self):
+        """LandslideDebris polygons should have a 'Landslide Detection' factor."""
+        scorer = RiskScorer()
+        change = _make_change(change_type="LandslideDebris")
+        proximity = _make_proximity(elevation_diff_m=50.0)
+
+        result = scorer.calculate_risk_score(change, proximity)
+        factor_names = [f.name for f in result.factors]
+
+        assert "Landslide Detection" in factor_names
+
+    def test_landslide_factor_reason_code_upslope(self):
+        """Upslope landslide should have LANDSLIDE_UPSLOPE reason code."""
+        scorer = RiskScorer()
+        change = _make_change(change_type="LandslideDebris")
+        proximity = _make_proximity(elevation_diff_m=50.0)
+
+        result = scorer.calculate_risk_score(change, proximity)
+        ls_factor = next(f for f in result.factors if f.name == "Landslide Detection")
+
+        assert ls_factor.reason_code == "LANDSLIDE_UPSLOPE"
+
+    def test_landslide_factor_reason_code_detected(self):
+        """Level-terrain landslide should have LANDSLIDE_DETECTED reason code."""
+        scorer = RiskScorer()
+        change = _make_change(change_type="LandslideDebris")
+        proximity = _make_proximity(elevation_diff_m=0.0)
+
+        result = scorer.calculate_risk_score(change, proximity)
+        ls_factor = next(f for f in result.factors if f.name == "Landslide Detection")
+
+        assert ls_factor.reason_code == "LANDSLIDE_DETECTED"
+
+    def test_low_slope_landslide_has_zero_points(self):
+        """Landslide on gentle slope should record factor but with 0 points."""
+        scorer = RiskScorer()
+        change = _make_change(
+            change_type="LandslideDebris",
+            slope_degree_mean=10.0,  # Below min_slope_deg of 15.0
+        )
+        proximity = _make_proximity(elevation_diff_m=50.0)
+
+        result = scorer.calculate_risk_score(change, proximity)
+        ls_factor = next(f for f in result.factors if f.name == "Landslide Detection")
+
+        assert ls_factor.points == 0
+        assert ls_factor.reason_code == "LANDSLIDE_LOW_SLOPE"
+
+    def test_landslide_score_capped_at_100(self):
+        """Even with all multipliers stacked, score should not exceed 100."""
+        scorer = RiskScorer()
+        change = _make_change(
+            change_type="LandslideDebris",
+            area_sq_meters=100000,
+            ndvi_drop_mean=-0.8,
+            slope_degree_mean=40.0,
+            aspect_degrees=180.0,
+        )
+        proximity = _make_proximity(
+            distance_meters=10,
+            criticality=3,
+            criticality_name="Critical",
+            elevation_diff_m=200.0,
+        )
+
+        result = scorer.calculate_risk_score(change, proximity)
+        assert result.score <= 100

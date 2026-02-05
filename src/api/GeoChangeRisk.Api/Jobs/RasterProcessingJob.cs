@@ -130,7 +130,15 @@ public class RasterProcessingJob
         process.ErrorDataReceived += (sender, e) =>
         {
             if (!string.IsNullOrEmpty(e.Data))
-                _logger.LogWarning("[Python Error] {Error}", e.Data);
+            {
+                // structlog writes to stderr; route by actual log level
+                if (e.Data.Contains("[error") || e.Data.Contains("Traceback"))
+                    _logger.LogError("[Python] {Output}", e.Data);
+                else if (e.Data.Contains("[warning"))
+                    _logger.LogWarning("[Python] {Output}", e.Data);
+                else
+                    _logger.LogInformation("[Python] {Output}", e.Data);
+            }
         };
 
         process.Start();

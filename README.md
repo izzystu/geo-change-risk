@@ -26,7 +26,7 @@ Geospatial risk intelligence for critical infrastructure. Detects land-surface c
 ### Risk Event Detail Panel
 ![Risk event displayed on map](docs/screenshots/risk-event-with-map.png)
 
-*Detailed risk event displayed on map with explainable score breakdown showing individual factor contributions.*
+*Detailed risk event displayed on map with explainable score breakdown showing individual factor contributions, in this case including a possible landslide event detected using the custom trained ML model.*
 
 ![Risk event displayed on map](docs/screenshots/risk-event-with-alert.png)
 
@@ -42,8 +42,9 @@ This platform turns freely available satellite data into **continuous, automated
 1. **Sentinel-2 imagery** (ESA, 5-day revisit) provides regular snapshots of vegetation health across any area of interest
 2. **NDVI change detection** identifies where and how severely vegetation has been lost or altered
 3. **Terrain modeling** (USGS 3DEP elevation data) determines whether changes are upslope of assets — a critical factor for debris flow and fire spread risk
-4. **ML classification** (EuroSAT land cover) distinguishes high-risk events like forest fires from routine changes like crop harvests, reducing false positives
-5. **Multi-factor risk scoring** produces a 0-100 score with full explainability — operators can see exactly why an event was flagged and what factors contributed
+4. **ML land cover classification** (EuroSAT via TorchGeo) distinguishes high-risk events like forest fires from routine changes like crop harvests, reducing false positives
+5. **ML landslide detection** (custom U-Net trained on Landslide4Sense) identifies debris flows on steep terrain — a critical correlated hazard after wildfire
+6. **Multi-factor risk scoring** produces a 0-100 score with full explainability — operators can see exactly why an event was flagged and what factors contributed
 
 The result is a prioritized feed of risk events that tells an asset operator: *"This specific vegetation loss, 200 meters upslope of your substation on a 30-degree slope, has a risk score of 82 (Critical) — here's the before/after imagery."*
 
@@ -53,6 +54,7 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 - **Terrain-Aware Scoring** — USGS 3DEP elevation data powers slope, aspect, and directional risk analysis (upslope threats score higher)
 - **Asset Proximity Analysis** — PostGIS spatial queries calculate distances between detected changes and infrastructure assets
 - **ML Land Cover Context** — EuroSAT pretrained model (via TorchGeo) classifies land cover to weight risk appropriately (forest fire vs. crop harvest)
+- **ML Landslide Detection** — Custom U-Net segmentation model trained on Landslide4Sense dataset identifies debris flows in steep terrain from 14-channel satellite + elevation input
 - **Explainable Risk Scores** — Every score includes a full breakdown of contributing factors and their individual weights
 - **Interactive Map UI** — ArcGIS Maps SDK with before/after imagery comparison, layer controls, and risk event exploration
 - **Dismiss/Act Workflow** — Risk events support operational triage with dismiss and action tracking
@@ -67,7 +69,8 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 | **Raster Pipeline** | Python 3.11+ | Geospatial processing (rasterio, geopandas, pystac) |
 | **Web UI** | SvelteKit + ArcGIS Maps SDK | Interactive mapping and visualization |
 | **Background Jobs** | Hangfire | Scheduled processing and notifications |
-| **ML Classification** | PyTorch + TorchGeo | Land cover classification (EuroSAT, optional) |
+| **ML Classification** | PyTorch + TorchGeo | Land cover classification (EuroSAT) |
+| **ML Segmentation** | PyTorch + segmentation-models-pytorch | Landslide detection (custom-trained U-Net) |
 
 ## Architecture
 
@@ -90,7 +93,8 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 │  - Processing Runs    │◄──────────────────│    - NDVI Calculation       │
 │  - Change Polygons    │                   │    - Change Detection       │
 │  - Risk Events        │                   │    - Terrain Analysis       │
-└───────────────────────┘                   │    - ML Land Cover (EuroSAT)│
+└───────────────────────┘                   │    - ML Land Cover          │
+                                            │    - ML Landslide Detection │
                                             │    - Risk Scoring           │
                                             └──────────────┬──────────────┘
                                                            │
@@ -115,6 +119,7 @@ The platform uses a multi-factor risk scoring model (0-100 scale):
 | **Slope + Direction** | 20 pts | Terrain steepness; upslope (landslide/debris risk) 1.5-2.5x, downslope (fire risk) 0.7-0.9x |
 | **Aspect** | 5 pts | South-facing slopes = higher fire risk |
 | **Land Cover** | multiplier | ML-classified context: Forest=1.0x, Crop=0.3x, Highway=0.25x (requires `[ml]` deps) |
+| **Landslide** | multiplier | ML-detected debris on steep terrain: 1.8x base, +0.5x if upslope, capped at 2.5x |
 | **Asset Criticality** | multiplier | Critical assets (hospitals, substations) get 2x weight |
 
 **Risk Levels:** Critical (75-100), High (50-74), Medium (25-49), Low (0-24)
@@ -139,7 +144,8 @@ geo-change-risk/
 │   ├── local/                     # Local development setup
 │   ├── aws/                       # AWS deployment (planned)
 │   └── azure/                     # Azure deployment (planned)
-├── machine-learning/           # ML training and models (planned)
+├── machine-learning/           # ML model training
+│   └── landslide/                 # U-Net landslide segmentation (training pipeline)
 └── docs/                       # Documentation
 ```
 
@@ -231,6 +237,7 @@ The included Paradise AOI covers the 2018 Camp Fire area with ~3,900 infrastruct
 | Terrain Analysis | Complete | USGS 3DEP slope/aspect/elevation, directional scoring |
 | Risk Scoring | Complete | Multi-factor additive scoring with land cover and criticality multipliers |
 | ML Land Cover | Complete | EuroSAT classification via TorchGeo (optional `[ml]` dependency) |
+| ML Landslide Detection | Complete | Custom U-Net trained on Landslide4Sense, integrated into pipeline and risk scoring |
 
 ## Roadmap
 
@@ -253,14 +260,29 @@ Deploy the full platform to AWS using Terraform. Replaces local Docker infrastru
 - **Web UI:** Static SvelteKit build served via CloudFront + S3
 - **IaC:** Modular Terraform with VPC, ALB, security groups, IAM roles
 
-### Landslide Detection (ML)
+## Machine Learning
 
-Train a U-Net segmentation model on the Landslide4Sense dataset to classify change polygons on steep terrain as landslides. Post-fire terrain loses the root systems that stabilize slopes, making debris flow a correlated hazard.
+The platform uses two ML models that integrate into the pipeline as optional dependencies — the pipeline degrades gracefully without them.
 
-- 14-channel input (12 Sentinel-2 bands + slope + DEM) matching data the pipeline already produces
-- Graceful degradation — same optional dependency pattern as EuroSAT land cover
-- Landslide multiplier (1.8x-2.5x) in risk scoring, stacking with directional slope factors
-- New `--skip-landslide` CLI flag and environment variable configuration
+### Land Cover Classification (EuroSAT)
+
+Pretrained EuroSAT model (via TorchGeo) classifies the land cover around each change polygon. This provides context for risk scoring: a vegetation loss event in forest land (1.0x) is treated very differently from one on agricultural land (0.3x) where seasonal clearing is routine.
+
+### Landslide Detection (Custom U-Net)
+
+A U-Net segmentation model trained in-house on the [Landslide4Sense](https://github.com/iarai/Landslide4Sense-2022) dataset to detect landslide debris in satellite imagery. Post-fire terrain loses the root systems that stabilize slopes, making debris flow a critical correlated hazard for downstream infrastructure.
+
+**Training pipeline** (`machine-learning/landslide/`):
+- **Architecture:** U-Net with ResNet34 encoder (via segmentation-models-pytorch), pretrained on ImageNet and adapted to 14-channel input
+- **Dataset:** Landslide4Sense — 3,799 training patches of 128x128 pixels, each with 12 Sentinel-2 spectral bands + slope + DEM elevation, with binary landslide masks
+- **Training approach:** Combined Dice + BCE loss with class imbalance handling (pos_weight capping), AdamW optimizer, cosine LR scheduling, mixed-precision training, early stopping on validation IoU
+- **Results:** IoU 0.47, F1 0.56, Recall 0.78 — outperforms the [official competition baseline](https://github.com/iarai/Landslide4Sense-2022) (F1 0.58, Precision 0.52, Recall 0.66). Full training logs and hyperparameter search across 8 runs documented in [`TRAINING.md`](machine-learning/landslide/TRAINING.md)
+
+**Inference integration** (`src/pipeline/georisk/raster/landslide.py`):
+- Assembles 14-channel input patches from data the pipeline already produces (Sentinel-2 bands + USGS 3DEP terrain)
+- Only evaluates polygons on steep terrain (slope > 10°) to focus on plausible landslide locations
+- Dual classification criteria (mean probability + pixel fraction thresholds) to control false positive rate
+- Classified landslide polygons receive a 1.8x-2.5x risk score multiplier, stacking with directional slope factors
 
 ## License
 
