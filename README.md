@@ -2,6 +2,8 @@
 
 Geospatial risk intelligence for critical infrastructure. Detects land-surface changes from satellite imagery, scores threat severity using terrain and proximity analysis, and delivers actionable risk events to asset operators.
 
+*Built as a portfolio project by a senior geospatial software architect with 25+ years spanning GIS, cloud platforms, and applied AI — from cartography and petroleum mapping through real-time medical systems to satellite remote sensing.*
+
 ## Screenshots
 
 ### Asset Map
@@ -67,7 +69,7 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 | **Object Storage** | MinIO (S3-compatible) | Raster imagery and processing artifacts |
 | **API** | ASP.NET Core 8 | REST API with EF Core + NetTopologySuite |
 | **Raster Pipeline** | Python 3.11+ | Geospatial processing (rasterio, geopandas, pystac) |
-| **Web UI** | SvelteKit + ArcGIS Maps SDK | Interactive mapping and visualization |
+| **Web UI** | SvelteKit + ArcGIS Maps SDK + D3.js | Interactive mapping, visualization, and data graphics |
 | **Background Jobs** | Hangfire | Scheduled processing and notifications |
 | **ML Classification** | PyTorch + TorchGeo | Land cover classification (EuroSAT) |
 | **ML Segmentation** | PyTorch + segmentation-models-pytorch | Landslide detection (custom-trained U-Net) |
@@ -123,6 +125,14 @@ The platform uses a multi-factor risk scoring model (0-100 scale):
 | **Asset Criticality** | multiplier | Critical assets (hospitals, substations) get 2x weight |
 
 **Risk Levels:** Critical (75-100), High (50-74), Medium (25-49), Low (0-24)
+
+## Architecture Decisions
+
+- **Multi-process separation of concerns** — .NET handles API orchestration, auth, and job scheduling while Python handles heavy geospatial processing. Each stack uses its strongest ecosystem (EF Core + PostGIS for spatial CRUD, rasterio + numpy for raster math) rather than forcing one language to do everything.
+- **Explainable scoring over black-box classification** — Every risk score includes a full factor breakdown so operators can understand *why* an event was flagged, not just that it was. This is essential for operational trust and regulatory defensibility.
+- **Graceful ML degradation** — PyTorch and TorchGeo are optional dependencies. The pipeline produces useful risk scores without ML; land cover classification and landslide detection enhance accuracy when available but never block the core workflow.
+- **Additive scoring with multipliers** — Base factors (distance, NDVI drop, area, slope, aspect) are additive and auditable. Context multipliers (land cover, asset criticality, landslide) scale the result. This makes the model transparent and tunable without requiring retraining.
+- **PostGIS spatial indexing for proximity queries** — GIST indexes on geometries enable fast nearest-asset lookups across thousands of infrastructure features, keeping risk scoring performant as asset counts grow.
 
 ## Project Structure
 
@@ -238,6 +248,7 @@ The included Paradise AOI covers the 2018 Camp Fire area with ~3,900 infrastruct
 | Risk Scoring | Complete | Multi-factor additive scoring with land cover and criticality multipliers |
 | ML Land Cover | Complete | EuroSAT classification via TorchGeo (optional `[ml]` dependency) |
 | ML Landslide Detection | Complete | Custom U-Net trained on Landslide4Sense, integrated into pipeline and risk scoring |
+| Testing | Complete | xUnit (.NET API controllers, services, models) + pytest (Python pipeline raster processing, risk scoring) |
 
 ## Roadmap
 
@@ -276,7 +287,7 @@ A U-Net segmentation model trained in-house on the [Landslide4Sense](https://git
 - **Architecture:** U-Net with ResNet34 encoder (via segmentation-models-pytorch), pretrained on ImageNet and adapted to 14-channel input
 - **Dataset:** Landslide4Sense — 3,799 training patches of 128x128 pixels, each with 12 Sentinel-2 spectral bands + slope + DEM elevation, with binary landslide masks
 - **Training approach:** Combined Dice + BCE loss with class imbalance handling (pos_weight capping), AdamW optimizer, cosine LR scheduling, mixed-precision training, early stopping on validation IoU
-- **Results:** IoU 0.47, F1 0.56, Recall 0.78 — outperforms the [official competition baseline](https://github.com/iarai/Landslide4Sense-2022) (F1 0.58, Precision 0.52, Recall 0.66). Full training logs and hyperparameter search across 8 runs documented in [`TRAINING.md`](machine-learning/landslide/TRAINING.md)
+- **Results:** IoU 0.47, F1 0.56, Recall 0.78 — achieves significantly higher recall than the [official competition baseline](https://github.com/iarai/Landslide4Sense-2022) (0.78 vs. 0.66) at comparable F1, prioritizing detection completeness over precision for a safety-critical application. Full training logs and hyperparameter search across 8 runs documented in [`TRAINING.md`](machine-learning/landslide/TRAINING.md)
 
 **Inference integration** (`src/pipeline/georisk/raster/landslide.py`):
 - Assembles 14-channel input patches from data the pipeline already produces (Sentinel-2 bands + USGS 3DEP terrain)
@@ -286,8 +297,4 @@ A U-Net segmentation model trained in-house on the [Landslide4Sense](https://git
 
 ## License
 
-[License information to be added]
-
-## Contributing
-
-[Contribution guidelines to be added]
+This project is licensed under the [MIT License](LICENSE).
