@@ -210,6 +210,7 @@ python initialize.py
 # Terminal 1: Start API
 cd src/api/GeoChangeRisk.Api
 dotnet run
+# To run w/ log file: dotnet run 2>&1 | Tee-Object -FilePath "api-output.txt"
 
 # Terminal 2: Start Web UI
 cd src/web-ui
