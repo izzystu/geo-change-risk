@@ -1,3 +1,4 @@
+using GeoChangeRisk.Api.Jobs;
 using GeoChangeRisk.Api.Services;
 using GeoChangeRisk.Contracts;
 using GeoChangeRisk.Data;
@@ -144,6 +145,44 @@ app.MapControllers();
 
 // Hangfire dashboard for monitoring jobs
 app.UseHangfireDashboard("/hangfire");
+
+// Register recurring check jobs for all scheduled AOIs
+try
+{
+    using var jobScope = app.Services.CreateScope();
+    var jobContext = jobScope.ServiceProvider.GetRequiredService<GeoChangeDbContext>();
+    var recurringJobs = jobScope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+
+    var scheduledAois = jobContext.AreasOfInterest
+        .Where(a => a.ProcessingEnabled && a.ProcessingSchedule != null)
+        .ToList();
+
+    var registeredCount = 0;
+    foreach (var aoi in scheduledAois)
+    {
+        try
+        {
+            recurringJobs.AddOrUpdate<ScheduledCheckJob>(
+                $"scheduled-check-{aoi.AoiId}",
+                job => job.ExecuteAsync(aoi.AoiId, CancellationToken.None),
+                aoi.ProcessingSchedule!,
+                new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+            registeredCount++;
+        }
+        catch (Exception aoiEx)
+        {
+            app.Logger.LogWarning(aoiEx,
+                "Failed to register recurring job for AOI {AoiId} with schedule '{Schedule}'",
+                aoi.AoiId, aoi.ProcessingSchedule);
+        }
+    }
+
+    app.Logger.LogInformation("Registered {Count}/{Total} recurring check jobs", registeredCount, scheduledAois.Count);
+}
+catch (Exception ex)
+{
+    app.Logger.LogWarning(ex, "Failed to register recurring jobs on startup");
+}
 
 // Health check endpoint
 app.MapHealthChecks("/health");

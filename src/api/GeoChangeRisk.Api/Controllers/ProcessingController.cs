@@ -93,15 +93,20 @@ public class ProcessingController : ControllerBase
     [HttpGet("runs")]
     public async Task<ActionResult<IEnumerable<ProcessingRunSummaryDto>>> ListRuns(
         [FromQuery] string? aoiId = null,
+        [FromQuery] int? status = null,
         [FromQuery] int limit = 50)
     {
         var query = _context.ProcessingRuns
-            .Include(r => r.ChangePolygons)
             .AsQueryable();
 
         if (!string.IsNullOrEmpty(aoiId))
         {
             query = query.Where(r => r.AoiId == aoiId);
+        }
+
+        if (status.HasValue)
+        {
+            query = query.Where(r => (int)r.Status == status.Value);
         }
 
         var runs = await query
@@ -114,6 +119,7 @@ public class ProcessingController : ControllerBase
                 StatusName = r.Status.ToString(),
                 BeforeDate = r.BeforeDate,
                 AfterDate = r.AfterDate,
+                AfterSceneId = r.AfterSceneId,
                 CreatedAt = r.CreatedAt,
                 ChangePolygonCount = r.ChangePolygons.Count,
                 RiskEventCount = r.ChangePolygons.SelectMany(c => c.RiskEvents).Count()

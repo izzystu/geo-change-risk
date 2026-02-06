@@ -3,6 +3,7 @@ using GeoChangeRisk.Api.Services;
 using GeoChangeRisk.Contracts;
 using GeoChangeRisk.Data;
 using GeoChangeRisk.Data.Models;
+using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -30,7 +31,8 @@ public class AreasOfInterestControllerTests : IDisposable
         _controller = new AreasOfInterestController(
             _context,
             Mock.Of<ILogger<AreasOfInterestController>>(),
-            _geometryServiceMock.Object);
+            _geometryServiceMock.Object,
+            Mock.Of<IRecurringJobManager>());
     }
 
     [Fact]

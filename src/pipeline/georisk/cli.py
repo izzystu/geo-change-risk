@@ -2,7 +2,7 @@
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +102,120 @@ def search(aoi_id: str, date_range: str, max_cloud: float, limit: int, output: P
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+
+@cli.command()
+@click.option("--aoi-id", required=True, help="Area of Interest ID")
+@click.option("--max-cloud", type=float, default=None, help="Maximum cloud cover percentage (overrides AOI setting)")
+@click.option("--since", type=click.DateTime(formats=["%Y-%m-%d"]), default=None, help="Search for imagery after this date (YYYY-MM-DD)")
+@click.option("--json", "output_json", is_flag=True, help="Output result as JSON")
+@click.pass_context
+def check(ctx, aoi_id: str, max_cloud: float | None, since: datetime | None, output_json: bool) -> None:
+    """Check for new satellite imagery availability for an AOI.
+
+    Searches STAC for scenes newer than the last completed processing run.
+    Exit codes: 0 = new data found, 1 = no new data, 2 = error.
+    """
+    from datetime import timedelta
+
+    logger = structlog.get_logger()
+
+    try:
+        with ApiClient() as api:
+            # 1. Get AOI details
+            aoi = api.get_aoi(aoi_id)
+            bbox = tuple(aoi["boundingBox"])
+            cloud_threshold = max_cloud if max_cloud is not None else aoi.get("maxCloudCover", 20.0)
+
+            # 2. Determine "since" date
+            last_run = None
+            if since:
+                since_date = since.strftime("%Y-%m-%d")
+            else:
+                last_run = api.get_latest_completed_run(aoi_id)
+                if last_run and last_run.get("afterDate"):
+                    # Start searching the day AFTER the last run's after date
+                    # to avoid re-finding the same scene on that date
+                    last_after = datetime.fromisoformat(last_run["afterDate"].replace("Z", "+00:00"))
+                    since_date = (last_after + timedelta(days=1)).strftime("%Y-%m-%d")
+                else:
+                    since_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+            if not output_json:
+                click.echo(f"Checking for new imagery since {since_date} (max cloud: {cloud_threshold}%)")
+
+            # 3. Search STAC for new scenes
+            scenes = search_scenes(
+                bbox=bbox,
+                start_date=since_date,
+                end_date=today,
+                max_cloud_cover=cloud_threshold,
+                max_items=10,
+            )
+
+            # 4. Filter out scenes already processed in the last run
+            if last_run:
+                processed_ids = set()
+                if last_run.get("afterSceneId"):
+                    processed_ids.add(last_run["afterSceneId"])
+                if last_run.get("beforeSceneId"):
+                    processed_ids.add(last_run["beforeSceneId"])
+                if processed_ids:
+                    scenes = [s for s in scenes if s.scene_id not in processed_ids]
+
+            if not scenes:
+                result = {"new_data": False, "since_date": since_date, "message": "No new imagery found"}
+                if output_json:
+                    click.echo(json.dumps(result, indent=2))
+                else:
+                    click.echo("No new imagery found.")
+                sys.exit(1)
+
+            # 5. Pick best scene (scenes are sorted by date descending)
+            best = scenes[0]
+
+            # 6. Determine recommended "before" date
+            if last_run and last_run.get("afterDate"):
+                recommended_before = datetime.fromisoformat(last_run["afterDate"].replace("Z", "+00:00")).strftime("%Y-%m-%d")
+            else:
+                lookback = aoi.get("defaultLookbackDays", 90)
+                recommended_before = (best.datetime - timedelta(days=lookback)).strftime("%Y-%m-%d")
+
+            recommended_after = best.datetime.strftime("%Y-%m-%d")
+
+            result = {
+                "new_data": True,
+                "scene_id": best.scene_id,
+                "scene_date": recommended_after,
+                "cloud_cover": best.cloud_cover,
+                "recommended_before_date": recommended_before,
+                "recommended_after_date": recommended_after,
+            }
+
+            if output_json:
+                click.echo(json.dumps(result, indent=2))
+            else:
+                click.echo(f"\nNew imagery available!")
+                click.echo(f"  Scene: {best.scene_id}")
+                click.echo(f"  Date:  {recommended_after}")
+                click.echo(f"  Cloud: {best.cloud_cover:.1f}%")
+                click.echo(f"\nRecommended processing dates:")
+                click.echo(f"  Before: {recommended_before}")
+                click.echo(f"  After:  {recommended_after}")
+
+            sys.exit(0)
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        if output_json:
+            click.echo(json.dumps({"new_data": False, "error": str(e)}, indent=2))
+        else:
+            click.echo(f"Error: {e}", err=True)
+        logger.exception("check_command_failed")
+        sys.exit(2)
 
 
 @cli.command()
@@ -461,13 +575,19 @@ def process(
 
             # Complete processing
             if run_id:
+                # Sanitize stats: replace NaN/Inf with None for JSON compliance
+                import math
+                clean_stats = {
+                    k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
+                    for k, v in changes.stats.items()
+                }
                 api.update_processing_run(
                     run_id,
                     status=ProcessingStatus.COMPLETED,
                     metadata={
                         "change_polygons": len(changes.polygons),
                         "risk_events": len(risk_events),
-                        "stats": changes.stats,
+                        "stats": clean_stats,
                         "terrain_analysis": dem_data is not None,
                         "dem_source": dem_source if dem_data is not None else None,
                         "land_cover_classification": any(

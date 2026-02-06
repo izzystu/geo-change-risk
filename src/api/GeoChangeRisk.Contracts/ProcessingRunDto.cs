@@ -71,6 +71,9 @@ public class ProcessingRunSummaryDto
     /// <summary>Date of "after" imagery.</summary>
     public DateTime AfterDate { get; set; }
 
+    /// <summary>Scene ID for "after" imagery.</summary>
+    public string? AfterSceneId { get; set; }
+
     /// <summary>When the run was created.</summary>
     public DateTime CreatedAt { get; set; }
 
