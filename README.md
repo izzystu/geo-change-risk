@@ -2,7 +2,7 @@
 
 Geospatial risk intelligence for critical infrastructure. Detects land-surface changes from satellite imagery, scores threat severity using terrain and proximity analysis, and delivers actionable risk events to asset operators.
 
-*Designed and built by a senior geospatial software architect with 25+ years spanning GIS, cloud platforms, and applied AI — from cartography and petroleum mapping through real-time medical systems to satellite remote sensing.*
+*End-to-end geospatial engineering — satellite data pipelines, spatial analysis, ML classification, and full-stack cloud architecture.*
 
 ## Screenshots
 
@@ -334,6 +334,10 @@ A U-Net segmentation model trained in-house on the [Landslide4Sense](https://git
 - Only evaluates polygons on steep terrain (slope > 10°) to focus on plausible landslide locations
 - Dual classification criteria (mean probability + pixel fraction thresholds) to control false positive rate
 - Classified landslide polygons receive a 1.8x-2.5x risk score multiplier, stacking with directional slope factors
+
+## Contact
+
+Questions, feedback, or want to see a live demo? Reach out at rob@izzystu.com — I'd love to chat.
 
 ## License
 
