@@ -6,8 +6,8 @@ Geospatial risk intelligence platform that detects land-surface changes from sat
 
 Three main components communicate via REST API and shared PostgreSQL + MinIO storage:
 
-- **API** (`src/api/`) — .NET 8 / ASP.NET Core REST API with EF Core + PostGIS spatial database, Hangfire background jobs, and NetTopologySuite geometry. Four projects: `GeoChangeRisk.Api`, `GeoChangeRisk.Data`, `GeoChangeRisk.Contracts`, `GeoChangeRisk.Tests`.
-- **Raster Pipeline** (`src/pipeline/`) — Python 3.11+ CLI (`georisk`) for satellite imagery search (STAC/Planetary Computer), NDVI calculation, change detection/vectorization, terrain analysis (USGS 3DEP), ML land cover classification (EuroSAT via TorchGeo), and multi-factor risk scoring.
+- **API** (`src/api/`) — .NET 8 / ASP.NET Core REST API with EF Core + PostGIS spatial database, Hangfire background jobs (processing + automated scheduling), and NetTopologySuite geometry. Four projects: `GeoChangeRisk.Api`, `GeoChangeRisk.Data`, `GeoChangeRisk.Contracts`, `GeoChangeRisk.Tests`.
+- **Raster Pipeline** (`src/pipeline/`) — Python 3.11+ CLI (`georisk`) for satellite imagery search (STAC/Planetary Computer), NDVI calculation, change detection/vectorization, terrain analysis (USGS 3DEP), ML land cover classification (EuroSAT via TorchGeo), multi-factor risk scoring, and automated new imagery checks (`georisk check`).
 - **Web UI** (`src/web-ui/`) — SvelteKit 2.0 frontend with ArcGIS Maps SDK for JavaScript and D3.js visualization. Before/after imagery comparison and interactive risk event display.
 
 Supporting infrastructure:
@@ -26,7 +26,7 @@ Supporting infrastructure:
 ```
 src/api/GeoChangeRisk.Api/Controllers/   # 7 REST controllers (AOI, Assets, Changes, Imagery, Processing, RiskEvents, System)
 src/api/GeoChangeRisk.Api/Services/      # Business logic (object storage, geometry, notifications)
-src/api/GeoChangeRisk.Api/Jobs/          # Hangfire background job definitions
+src/api/GeoChangeRisk.Api/Jobs/          # Hangfire background jobs (RasterProcessingJob, ScheduledCheckJob)
 src/api/GeoChangeRisk.Data/Models/       # EF Core entity models (AreaOfInterest, Asset, ChangePolygon, RiskEvent, etc.)
 src/api/GeoChangeRisk.Data/Migrations/   # Database schema migrations
 src/pipeline/georisk/                    # Python pipeline modules (cli, stac, raster, risk, storage, db)
@@ -43,7 +43,7 @@ Prerequisites: Docker Desktop, .NET 8 SDK, Python 3.11+, Node.js 18+
 
 1. Infrastructure: `.\deployments\local\setup.ps1` (generates credentials, starts PostgreSQL + MinIO containers)
 2. API: `cd src/api/GeoChangeRisk.Api && dotnet run` (runs on localhost:5062, Swagger at `/swagger`, Hangfire at `/hangfire`)
-3. Pipeline: `cd src/pipeline && pip install -e .` (base) or `pip install -e ".[ml]"` (with ML land cover classification), then `python -m georisk <command>`
+3. Pipeline: `cd src/pipeline && pip install -e .` (base) or `pip install -e ".[ml]"` (with ML land cover classification), then `python -m georisk <command>` (commands: `search`, `check`, `process`, `fetch`, `status`, `health`)
 4. Web UI: `cd src/web-ui && npm install && npm run dev` (runs on localhost:5173)
 
 Credentials are generated into `infra/local/.env` (gitignored) and shared across components.
@@ -57,3 +57,6 @@ Credentials are generated into `infra/local/.env` (gitignored) and shared across
 - Risk scoring uses additive factors (distance, NDVI drop, area, slope+direction, aspect) with two multipliers: land cover context (0.25x-1.0x via EuroSAT classification) and asset criticality (0.5x-2.0x)
 - ML dependencies (torch, torchgeo) are optional — pipeline degrades gracefully without them
 - Data model supports ML with MlConfidence, MlModelVersion, and ChangeType enum fields
+- Automated scheduling uses per-AOI cron expressions (ProcessingSchedule field), Hangfire recurring jobs, and the `georisk check` CLI command
+- ScheduledCheckJob guards against duplicate runs by checking for in-progress ProcessingRuns before creating new ones
+- Scheduled runs chain dates: each run's "before" date = previous run's "after" date, creating continuous temporal coverage

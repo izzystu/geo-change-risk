@@ -7,6 +7,7 @@
 	import LayerPanel from '$lib/components/LayerPanel.svelte';
 	import ImageryPanel from '$lib/components/ImageryPanel.svelte';
 	import ProcessingPanel from '$lib/components/ProcessingPanel.svelte';
+	import SchedulingPanel from '$lib/components/SchedulingPanel.svelte';
 	import RiskEventsPanel from '$lib/components/RiskEventsPanel.svelte';
 
 	let apiStatus: 'loading' | 'connected' | 'error' = 'loading';
@@ -100,6 +101,10 @@
 
 				<section class="sidebar-section">
 					<RiskEventsPanel onEventClick={handleRiskEventClick} />
+				</section>
+
+				<section class="sidebar-section">
+					<SchedulingPanel />
 				</section>
 			</div>
 		{/if}

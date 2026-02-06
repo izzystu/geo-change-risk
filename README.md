@@ -34,6 +34,11 @@ Geospatial risk intelligence for critical infrastructure. Detects land-surface c
 
 *Risk event alert with actionable instructions (can be integrated into a site inspection scheduling system).*
 
+### Automated Scheduling
+![Scheduling panel](docs/screenshots/scheduling-panel.png)
+
+*Scheduling panel with configurable frequency, cloud cover threshold, and job history showing automated processing runs.*
+
 
 ## Why This Exists
 
@@ -53,6 +58,7 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 ## Key Features
 
 - **Satellite Change Detection** — Automated NDVI change detection from Sentinel-2 imagery via Microsoft Planetary Computer STAC API
+- **Automated Scheduling** — Per-AOI cron-based scheduling with configurable cloud cover thresholds. Automatically checks for new imagery and triggers processing runs when acceptable data is available
 - **Terrain-Aware Scoring** — USGS 3DEP elevation data powers slope, aspect, and directional risk analysis (upslope threats score higher)
 - **Asset Proximity Analysis** — PostGIS spatial queries calculate distances between detected changes and infrastructure assets
 - **ML Land Cover Context** — EuroSAT pretrained model (via TorchGeo) classifies land cover to weight risk appropriately (forest fire vs. crop harvest)
@@ -248,18 +254,52 @@ The included Paradise AOI covers the 2018 Camp Fire area with ~3,900 infrastruct
 | Risk Scoring | Complete | Multi-factor additive scoring with land cover and criticality multipliers |
 | ML Land Cover | Complete | EuroSAT classification via TorchGeo (optional `[ml]` dependency) |
 | ML Landslide Detection | Complete | Custom U-Net trained on Landslide4Sense, integrated into pipeline and risk scoring |
+| Automated Scheduling | Complete | Per-AOI cron scheduling, cloud cover thresholds, `georisk check` CLI, Hangfire recurring jobs, Web UI scheduling panel |
 | Testing | Complete | xUnit (.NET API controllers, services, models) + pytest (Python pipeline raster processing, risk scoring) |
 
+## Automated Scheduling
+
+The platform supports fully automated monitoring of each AOI for new satellite imagery. When configured, a Hangfire recurring job checks for new Sentinel-2 scenes on a cron schedule and automatically triggers processing runs when acceptable data is available.
+
+### How It Works
+
+1. **Schedule configuration** — Each AOI can be assigned a cron schedule (e.g., daily, weekly) and a maximum cloud cover threshold via the Scheduling panel in the Web UI or the REST API
+2. **Imagery check** — On each scheduled tick, the `georisk check` CLI command queries the STAC API for new Sentinel-2 scenes since the last completed run, filtered by the cloud cover threshold
+3. **Automatic run creation** — If a new scene is found that hasn't been processed yet, a processing run is created with:
+   - **After date** = the date of the new scene
+   - **Before date** = the after date from the last completed run (creating a continuous monitoring chain), or `defaultLookbackDays` back from the new scene if no previous run exists
+4. **Guard logic** — If a processing run is already in progress for the AOI, the check skips to avoid duplicate runs
+5. **Persistence** — Schedules are stored on the AOI record in the database and re-registered with Hangfire on API startup
+
+### CLI Usage
+
+```bash
+# Check for new imagery (used by scheduler, also available manually)
+python -m georisk check --aoi-id paradise-ca --json
+
+# With custom cloud cover threshold
+python -m georisk check --aoi-id paradise-ca --max-cloud 15 --json
+```
+
+### API Usage
+
+```bash
+# Configure a daily schedule at 6 AM UTC with 25% max cloud cover
+curl -X PUT http://localhost:5074/api/areas-of-interest/paradise-ca/schedule \
+  -H "Content-Type: application/json" \
+  -d '{"processingSchedule": "0 6 * * *", "processingEnabled": true, "maxCloudCover": 25}'
+```
+
+### Common Cron Schedules
+
+| Schedule | Cron Expression |
+|----------|----------------|
+| Every 6 hours | `0 */6 * * *` |
+| Daily at 6 AM UTC | `0 6 * * *` |
+| Twice weekly (Mon/Thu) | `0 6 * * 1,4` |
+| Weekly (Monday) | `0 6 * * 1` |
+
 ## Roadmap
-
-### Automated Scheduling & Data Quality Checks
-
-Automatically monitor each AOI for new Sentinel-2 imagery on a configurable schedule. When acceptable data is available (cloud cover below threshold), trigger a processing run without manual intervention.
-
-- Per-AOI cloud cover thresholds and scheduling via cron expressions
-- New `georisk check` CLI command to query for new imagery availability
-- Hangfire recurring jobs to orchestrate the check-and-process cycle
-- Guard logic to prevent duplicate runs when processing is already in progress
 
 ### AWS Cloud Deployment
 

@@ -16,6 +16,12 @@ export interface AreaOfInterest {
 	center: [number, number];
 	assetCount: number;
 	createdAt: string;
+	processingSchedule: string | null;
+	processingEnabled: boolean;
+	lastProcessedAt: string | null;
+	defaultLookbackDays: number;
+	maxCloudCover: number;
+	lastCheckedAt: string | null;
 }
 
 export interface Asset {
@@ -100,6 +106,13 @@ export interface CreateProcessingRunRequest {
 	beforeDate: string;
 	afterDate: string;
 	parameters?: Record<string, unknown>;
+}
+
+export interface UpdateAoiScheduleRequest {
+	processingSchedule?: string | null;
+	processingEnabled?: boolean;
+	defaultLookbackDays?: number;
+	maxCloudCover?: number;
 }
 
 // Risk event types
@@ -200,6 +213,17 @@ export const api = {
 
 	async getAreaOfInterest(id: string): Promise<AreaOfInterest> {
 		return fetchJson(`${API_BASE}/api/areas-of-interest/${id}`);
+	},
+
+	async updateAoiSchedule(aoiId: string, request: UpdateAoiScheduleRequest): Promise<AreaOfInterest> {
+		return fetchJson(`${API_BASE}/api/areas-of-interest/${aoiId}/schedule`, {
+			method: 'PUT',
+			body: JSON.stringify(request)
+		});
+	},
+
+	async getScheduledAois(): Promise<AreaOfInterestSummary[]> {
+		return fetchJson(`${API_BASE}/api/areas-of-interest/scheduled`);
 	},
 
 	// Assets

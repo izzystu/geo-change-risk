@@ -38,6 +38,12 @@ public class AreaOfInterestDto
 
     /// <summary>Default lookback days for before imagery.</summary>
     public int DefaultLookbackDays { get; set; }
+
+    /// <summary>Maximum cloud cover percentage for imagery search (0-100).</summary>
+    public double MaxCloudCover { get; set; }
+
+    /// <summary>Timestamp of last scheduled check for new imagery.</summary>
+    public DateTime? LastCheckedAt { get; set; }
 }
 
 /// <summary>
@@ -89,4 +95,7 @@ public class UpdateAoiScheduleRequest
 
     /// <summary>Default lookback days for before imagery.</summary>
     public int? DefaultLookbackDays { get; set; }
+
+    /// <summary>Maximum cloud cover percentage for imagery search (0-100).</summary>
+    public double? MaxCloudCover { get; set; }
 }

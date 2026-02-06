@@ -1,7 +1,9 @@
+using GeoChangeRisk.Api.Jobs;
 using GeoChangeRisk.Api.Services;
 using GeoChangeRisk.Contracts;
 using GeoChangeRisk.Data;
 using GeoChangeRisk.Data.Models;
+using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,15 +19,18 @@ public class AreasOfInterestController : ControllerBase
     private readonly GeoChangeDbContext _context;
     private readonly ILogger<AreasOfInterestController> _logger;
     private readonly IGeometryParsingService _geometryService;
+    private readonly IRecurringJobManager _recurringJobs;
 
     public AreasOfInterestController(
         GeoChangeDbContext context,
         ILogger<AreasOfInterestController> logger,
-        IGeometryParsingService geometryService)
+        IGeometryParsingService geometryService,
+        IRecurringJobManager recurringJobs)
     {
         _context = context;
         _logger = logger;
         _geometryService = geometryService;
+        _recurringJobs = recurringJobs;
     }
 
     /// <summary>
@@ -70,7 +75,13 @@ public class AreasOfInterestController : ControllerBase
             BoundingBox = [envelope.MinX, envelope.MinY, envelope.MaxX, envelope.MaxY],
             Center = [aoi.CenterPoint.X, aoi.CenterPoint.Y],
             AssetCount = aoi.Assets.Count,
-            CreatedAt = aoi.CreatedAt
+            CreatedAt = aoi.CreatedAt,
+            ProcessingSchedule = aoi.ProcessingSchedule,
+            ProcessingEnabled = aoi.ProcessingEnabled,
+            LastProcessedAt = aoi.LastProcessedAt,
+            DefaultLookbackDays = aoi.DefaultLookbackDays,
+            MaxCloudCover = aoi.MaxCloudCover,
+            LastCheckedAt = aoi.LastCheckedAt
         });
     }
 
@@ -209,7 +220,9 @@ public class AreasOfInterestController : ControllerBase
             BoundingBox = [envelope.MinX, envelope.MinY, envelope.MaxX, envelope.MaxY],
             Center = [aoi.CenterPoint.X, aoi.CenterPoint.Y],
             AssetCount = 0,
-            CreatedAt = aoi.CreatedAt
+            CreatedAt = aoi.CreatedAt,
+            MaxCloudCover = aoi.MaxCloudCover,
+            LastCheckedAt = aoi.LastCheckedAt
         });
     }
 
@@ -225,6 +238,7 @@ public class AreasOfInterestController : ControllerBase
             return NotFound(new { Error = $"Area of Interest '{id}' not found" });
         }
 
+        _recurringJobs.RemoveIfExists($"scheduled-check-{aoi.AoiId}");
         _context.AreasOfInterest.Remove(aoi);
         await _context.SaveChangesAsync();
 
@@ -250,6 +264,16 @@ public class AreasOfInterestController : ControllerBase
             return NotFound(new { Error = $"Area of Interest '{id}' not found" });
         }
 
+        // Validate input ranges
+        if (request.MaxCloudCover.HasValue && (request.MaxCloudCover.Value < 1 || request.MaxCloudCover.Value > 100))
+        {
+            return BadRequest(new { Error = "MaxCloudCover must be between 1 and 100" });
+        }
+        if (request.DefaultLookbackDays.HasValue && (request.DefaultLookbackDays.Value < 1 || request.DefaultLookbackDays.Value > 365))
+        {
+            return BadRequest(new { Error = "DefaultLookbackDays must be between 1 and 365" });
+        }
+
         // Update scheduling fields
         if (request.ProcessingSchedule != null)
         {
@@ -264,6 +288,31 @@ public class AreasOfInterestController : ControllerBase
         if (request.DefaultLookbackDays.HasValue)
         {
             aoi.DefaultLookbackDays = request.DefaultLookbackDays.Value;
+        }
+        if (request.MaxCloudCover.HasValue)
+        {
+            aoi.MaxCloudCover = request.MaxCloudCover.Value;
+        }
+
+        // Validate cron expression via Hangfire BEFORE persisting changes
+        if (aoi.ProcessingEnabled && !string.IsNullOrEmpty(aoi.ProcessingSchedule))
+        {
+            try
+            {
+                _recurringJobs.AddOrUpdate<ScheduledCheckJob>(
+                    $"scheduled-check-{aoi.AoiId}",
+                    job => job.ExecuteAsync(aoi.AoiId, CancellationToken.None),
+                    aoi.ProcessingSchedule,
+                    new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { Error = $"Invalid cron expression: {ex.InnerException?.Message ?? ex.Message}" });
+            }
+        }
+        else
+        {
+            _recurringJobs.RemoveIfExists($"scheduled-check-{aoi.AoiId}");
         }
 
         aoi.UpdatedAt = DateTime.UtcNow;
@@ -286,7 +335,9 @@ public class AreasOfInterestController : ControllerBase
             ProcessingSchedule = aoi.ProcessingSchedule,
             ProcessingEnabled = aoi.ProcessingEnabled,
             LastProcessedAt = aoi.LastProcessedAt,
-            DefaultLookbackDays = aoi.DefaultLookbackDays
+            DefaultLookbackDays = aoi.DefaultLookbackDays,
+            MaxCloudCover = aoi.MaxCloudCover,
+            LastCheckedAt = aoi.LastCheckedAt
         });
     }
 
