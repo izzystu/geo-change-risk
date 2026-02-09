@@ -300,6 +300,10 @@ curl -X PUT http://localhost:5074/api/areas-of-interest/paradise-ca/schedule \
 | Twice weekly (Mon/Thu) | `0 6 * * 1,4` |
 | Weekly (Monday) | `0 6 * * 1` |
 
+## ArcGIS Pro Integration
+
+The PostGIS database includes read-only views (`v_areas_of_interest`, `v_asset_*`, `v_change_polygons`, `v_risk_events`) for direct use in ArcGIS Pro. See [docs/arcgis-pro-setup.md](docs/arcgis-pro-setup.md) for connection instructions and view details.
+
 ## Roadmap
 
 ### AWS Cloud Deployment
