@@ -19,6 +19,7 @@ Supporting infrastructure:
 - `README.md` — Project overview, architecture diagram, tech stack, quick start guide
 - `IMPLEMENTATION-PLAN.md` — Roadmap with phase-by-phase progress tracking
 - `docs/ml-integration-ideas.md` — ML model proposals (Prithvi-EO-2.0 burn scar segmentation, EuroSAT land cover)
+- `docs/arcgis-pro-setup.md` — ArcGIS Pro connection guide and PostGIS compatibility views
 - `areas-of-interest/paradise/README.md` — Paradise, CA sample AOI documentation and data sources
 
 ## Key Directories
