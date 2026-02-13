@@ -21,16 +21,23 @@
 	let localMaxCloud = 20;
 	let hasUnsavedChanges = false;
 	let currentAoiId: string | null = null;
+	let loadedScheduleForAoi: string | null = null;
 	let loadingAoiId: string | null = null;
 
-	// Load schedule when AOI changes (use stable ID to avoid re-firing on save/toggle)
-	$: if ($selectedAoiId && $selectedAoiId !== currentAoiId) {
+	// Load schedule when AOI changes or when AOI details finish loading async.
+	// The loadedScheduleForAoi guard ensures we load once per AOI selection,
+	// even when selectedAoi arrives after selectedAoiId (async fetch).
+	$: if ($selectedAoiId !== currentAoiId) {
 		currentAoiId = $selectedAoiId;
-		if ($selectedAoi) {
-			loadScheduleFromAoi($selectedAoi);
-			loadScheduledRuns($selectedAoi.aoiId);
-			syncLocalState($selectedAoi);
-		}
+		loadedScheduleForAoi = null;
+		if (!$selectedAoiId) resetScheduleState();
+	}
+
+	$: if ($selectedAoi && $selectedAoi.aoiId === currentAoiId && loadedScheduleForAoi !== currentAoiId) {
+		loadedScheduleForAoi = currentAoiId;
+		loadScheduleFromAoi($selectedAoi);
+		loadScheduledRuns($selectedAoi.aoiId);
+		syncLocalState($selectedAoi);
 	}
 
 	function syncLocalState(aoi: import('$lib/services/api').AreaOfInterest) {
