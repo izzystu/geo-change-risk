@@ -240,8 +240,22 @@ class RiskScorer:
             total_score += aspect_score.points
 
         # Apply land cover multiplier (before criticality)
+        # Skip for confirmed landslides — landslide detection is a specific ML
+        # signal that overrides the generic land cover context. EuroSAT may
+        # misclassify debris fields as crops/bare soil, which would incorrectly
+        # suppress scores for genuine landslide threats.
+        is_landslide = change.change_type == "LandslideDebris"
         lc_multiplier = self._get_land_cover_multiplier(change.land_cover_class)
-        if lc_multiplier != 1.0:
+        if is_landslide and lc_multiplier < 1.0:
+            lc_factor = ScoringFactor(
+                name="Land Cover",
+                points=0,
+                max_points=0,
+                reason_code=f"LANDCOVER_{change.land_cover_class.upper()}_SKIP" if change.land_cover_class else "LANDCOVER_UNKNOWN",
+                details=f"Land cover: {change.land_cover_class or 'unknown'} (multiplier: {lc_multiplier:.2f}x, skipped for confirmed landslide)",
+            )
+            factors.append(lc_factor)
+        elif lc_multiplier != 1.0:
             lc_delta = int(total_score * lc_multiplier) - total_score
             lc_factor = ScoringFactor(
                 name="Land Cover",
