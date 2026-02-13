@@ -6,6 +6,7 @@ locals {
     artifacts = "georisk-${var.env_name}-artifacts"
     imagery   = "georisk-${var.env_name}-imagery"
     changes   = "georisk-${var.env_name}-changes"
+    models    = "georisk-${var.env_name}-models"
   }
 }
 
@@ -122,6 +123,7 @@ output "bucket_names" {
     artifacts = aws_s3_bucket.data["artifacts"].bucket
     imagery   = aws_s3_bucket.data["imagery"].bucket
     changes   = aws_s3_bucket.data["changes"].bucket
+    models    = aws_s3_bucket.data["models"].bucket
   }
 }
 

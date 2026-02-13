@@ -21,7 +21,7 @@ Internet
 | **App Runner** | REST API | 0.25 vCPU / 0.5 GB, scale-to-zero (~$2/month idle) |
 | **ECS Fargate Spot** | Pipeline tasks | 2 vCPU / 8 GB, on-demand only (~$0.60/month for ~4 hrs) |
 | **RDS PostgreSQL** | Database | db.t4g.micro, 20 GB gp3, PostGIS 3.4, single-AZ |
-| **S3** | Object storage | 4 data buckets + 1 web UI bucket |
+| **S3** | Object storage | 5 data buckets + 1 web UI bucket |
 | **CloudFront** | Web UI CDN | OAC to S3, SPA fallback |
 | **EventBridge Scheduler** | Cron scheduling | Replaces Hangfire recurring jobs |
 | **Secrets Manager** | Credentials | RDS connection string |
@@ -155,6 +155,7 @@ curl -H "X-Api-Key: your-key" https://<app-runner-url>/api/areas-of-interest
 | `MINIO_ENDPOINT` | (unset) | Empty = S3 mode via IAM role |
 | `MINIO_BUCKET_IMAGERY` | `georisk-dev-imagery` | S3 bucket for satellite imagery |
 | `MINIO_BUCKET_CHANGES` | `georisk-dev-changes` | S3 bucket for change detection outputs |
+| `MINIO_BUCKET_MODELS` | `georisk-dev-models` | S3 bucket for ML model files |
 
 ## Abstraction Interfaces
 

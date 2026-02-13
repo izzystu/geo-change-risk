@@ -17,7 +17,7 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY georisk/ georisk/
 
-# Install base dependencies (no ML for initial deployment)
-RUN pip install --no-cache-dir -e .
+# Install with ML dependencies (torch, segmentation-models-pytorch)
+RUN pip install --no-cache-dir -e ".[ml]"
 
 ENTRYPOINT ["python", "-m", "georisk.cli"]

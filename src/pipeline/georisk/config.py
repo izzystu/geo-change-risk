@@ -28,6 +28,7 @@ class MinioConfig:
     secure: bool = False
     bucket_imagery: str = "georisk-imagery"
     bucket_changes: str = "georisk-changes"
+    bucket_models: str = "ml-models"
 
 
 @dataclass
@@ -176,6 +177,8 @@ class Config:
             self.minio.bucket_imagery = bucket
         if bucket := os.getenv("MINIO_BUCKET_CHANGES"):
             self.minio.bucket_changes = bucket
+        if bucket := os.getenv("MINIO_BUCKET_MODELS"):
+            self.minio.bucket_models = bucket
 
         # STAC
         if url := os.getenv("STAC_CATALOG_URL"):

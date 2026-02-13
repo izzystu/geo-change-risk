@@ -344,6 +344,8 @@ A U-Net segmentation model trained in-house on the [Landslide4Sense](https://git
 - Dual classification criteria (mean probability + pixel fraction thresholds) to control false positive rate
 - Classified landslide polygons receive a 1.8x-2.5x risk score multiplier, stacking with directional slope factors
 
+**Model storage:** The trained model (~94 MB) is stored in the `ml-models` S3/MinIO bucket (not in git). The pipeline auto-downloads it to `~/.cache/georisk/models/` on first use. Upload with `georisk model upload <path>`, or train your own following [`TRAINING.md`](machine-learning/landslide/TRAINING.md).
+
 ## Contact
 
 Questions, feedback, or want to see a live demo? Reach out at rob@izzystu.com — I'd love to chat.

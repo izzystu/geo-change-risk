@@ -52,7 +52,7 @@ Prerequisites: Docker Desktop, .NET 8 SDK, Python 3.11+, Node.js 18+
 
 1. Infrastructure: `.\deployments\local\setup.ps1` (generates credentials, starts PostgreSQL + MinIO containers)
 2. API: `cd src/api/GeoChangeRisk.Api && dotnet run` (runs on localhost:5062, Swagger at `/swagger`, Hangfire at `/hangfire`)
-3. Pipeline: `cd src/pipeline && pip install -e .` (base) or `pip install -e ".[ml]"` (with ML land cover classification), then `python -m georisk <command>` (commands: `search`, `check`, `process`, `fetch`, `status`, `health`)
+3. Pipeline: `cd src/pipeline && pip install -e .` (base) or `pip install -e ".[ml]"` (with ML land cover classification), then `python -m georisk <command>` (commands: `search`, `check`, `process`, `fetch`, `status`, `health`, `model upload/download/list`)
 4. Web UI: `cd src/web-ui && npm install && npm run dev` (runs on localhost:5173)
 
 Credentials are generated into `infra/local/.env` (gitignored) and shared across components.
@@ -71,3 +71,4 @@ For AWS deployment, see `docs/aws-deployment.md`. AWS uses IAM roles instead of 
 - Automated scheduling uses per-AOI cron expressions (ProcessingSchedule field), the active ISchedulerService provider (Hangfire or EventBridge), and the `georisk check` CLI command
 - ScheduledCheckJob guards against duplicate runs by checking for in-progress ProcessingRuns before creating new ones
 - Scheduled runs chain dates: each run's "before" date = previous run's "after" date, creating continuous temporal coverage
+- ML models stored in `ml-models` bucket (S3/MinIO), auto-downloaded to `~/.cache/georisk/models/` on first use

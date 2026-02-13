@@ -39,6 +39,7 @@ class MinioStorage:
         self.secure = secure if secure is not None else config.minio.secure
         self.bucket_imagery = config.minio.bucket_imagery
         self.bucket_changes = config.minio.bucket_changes
+        self.bucket_models = config.minio.bucket_models
 
         # Determine if running in S3 mode (no endpoint) or MinIO mode
         self._s3_mode = not self.endpoint
@@ -289,6 +290,96 @@ class MinioStorage:
             object_key,
             content_type="image/tiff",
         )
+
+    def upload_model(
+        self,
+        local_path: Path,
+        model_name: str = "landslide",
+        version: str | None = None,
+        filename: str | None = None,
+    ) -> str:
+        """Upload an ML model file to the models bucket.
+
+        Args:
+            local_path: Path to the local model file.
+            model_name: Model name (used as key prefix).
+            version: Optional version string (e.g. "v1").
+            filename: Optional filename (defaults to local filename).
+
+        Returns:
+            Full object path (bucket/key).
+        """
+        filename = filename or local_path.name
+        if version:
+            object_key = f"{model_name}/{version}/{filename}"
+        else:
+            object_key = f"{model_name}/{filename}"
+
+        return self.upload_file(
+            local_path,
+            self.bucket_models,
+            object_key,
+        )
+
+    def download_model(
+        self,
+        local_path: Path,
+        model_name: str = "landslide",
+        version: str | None = None,
+        filename: str = "landslide_model.pth",
+    ) -> Path:
+        """Download an ML model file from the models bucket.
+
+        Args:
+            local_path: Local path to save the file.
+            model_name: Model name (key prefix).
+            version: Optional version string.
+            filename: Model filename in storage.
+
+        Returns:
+            Path to the downloaded file.
+        """
+        if version:
+            object_key = f"{model_name}/{version}/{filename}"
+        else:
+            object_key = f"{model_name}/{filename}"
+
+        return self.download_file(self.bucket_models, object_key, local_path)
+
+    def model_exists(
+        self,
+        model_name: str = "landslide",
+        version: str | None = None,
+        filename: str = "landslide_model.pth",
+    ) -> bool:
+        """Check if an ML model exists in the models bucket.
+
+        Args:
+            model_name: Model name (key prefix).
+            version: Optional version string.
+            filename: Model filename to check.
+
+        Returns:
+            True if the model exists.
+        """
+        if version:
+            object_key = f"{model_name}/{version}/{filename}"
+        else:
+            object_key = f"{model_name}/{filename}"
+
+        return self.object_exists(self.bucket_models, object_key)
+
+    def list_models(self, model_name: str | None = None) -> list[dict[str, Any]]:
+        """List ML models in the models bucket.
+
+        Args:
+            model_name: Optional model name to filter by (prefix).
+
+        Returns:
+            List of object metadata dictionaries.
+        """
+        prefix = f"{model_name}/" if model_name else ""
+        return self.list_objects(self.bucket_models, prefix=prefix)
 
     def upload_change_artifacts(
         self,

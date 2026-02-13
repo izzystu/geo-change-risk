@@ -1,5 +1,8 @@
 """Tests for the landslide detection module."""
 
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
 
@@ -8,6 +11,7 @@ from georisk.raster.landslide import (
     LANDSLIDE_PATCH_SIZE,
     LandslideResult,
     _normalize_landslide_patch,
+    _ensure_model_cached,
     is_landslide_available,
 )
 
@@ -149,3 +153,64 @@ class TestLandslideResult:
         )
         assert result.is_landslide is False
         assert result.landslide_probability < result.confidence_threshold
+
+
+# ---------------------------------------------------------------------------
+# _ensure_model_cached
+# ---------------------------------------------------------------------------
+
+class TestEnsureModelCached:
+    """Tests for _ensure_model_cached()."""
+
+    def test_returns_path_if_file_exists(self, tmp_path):
+        """Should return the path immediately if the file already exists locally."""
+        model_file = tmp_path / "model.pth"
+        model_file.write_bytes(b"fake model data")
+
+        result = _ensure_model_cached(model_file)
+        assert result == model_file
+
+    @patch("georisk.storage.minio.MinioStorage", create=True)
+    def test_downloads_from_storage_when_missing(self, mock_storage_cls, tmp_path):
+        """Should download from storage when file is missing but exists in bucket."""
+        model_file = tmp_path / "models" / "model.pth"
+        assert not model_file.exists()
+
+        mock_storage = MagicMock()
+        mock_storage.model_exists.return_value = True
+        mock_storage.download_model.return_value = model_file
+        mock_storage_cls.return_value = mock_storage
+
+        with patch("georisk.storage.minio.MinioStorage", return_value=mock_storage):
+            result = _ensure_model_cached(model_file)
+
+        assert result == model_file
+        mock_storage.model_exists.assert_called_once()
+        mock_storage.download_model.assert_called_once_with(model_file)
+
+    @patch("georisk.storage.minio.MinioStorage", create=True)
+    def test_returns_none_when_not_in_storage(self, mock_storage_cls, tmp_path):
+        """Should return None when the model is not found in storage."""
+        model_file = tmp_path / "model.pth"
+
+        mock_storage = MagicMock()
+        mock_storage.model_exists.return_value = False
+        mock_storage_cls.return_value = mock_storage
+
+        with patch("georisk.storage.minio.MinioStorage", return_value=mock_storage):
+            result = _ensure_model_cached(model_file)
+
+        assert result is None
+        mock_storage.download_model.assert_not_called()
+
+    def test_returns_none_on_storage_error(self, tmp_path):
+        """Should return None gracefully when storage is unavailable."""
+        model_file = tmp_path / "model.pth"
+
+        with patch(
+            "georisk.storage.minio.MinioStorage",
+            side_effect=Exception("connection refused"),
+        ):
+            result = _ensure_model_cached(model_file)
+
+        assert result is None

@@ -65,10 +65,11 @@ resource "aws_ecs_task_definition" "pipeline" {
     essential = true
 
     environment = [
-      { name = "ML_ENABLED", value = "false" },
+      { name = "ML_ENABLED", value = "true" },
       { name = "AWS_REGION", value = var.region },
       { name = "MINIO_BUCKET_IMAGERY", value = var.s3_bucket_names["imagery"] },
-      { name = "MINIO_BUCKET_CHANGES", value = var.s3_bucket_names["changes"] }
+      { name = "MINIO_BUCKET_CHANGES", value = var.s3_bucket_names["changes"] },
+      { name = "MINIO_BUCKET_MODELS", value = var.s3_bucket_names["models"] }
     ]
 
     secrets = [
