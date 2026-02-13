@@ -1,14 +1,20 @@
-# ArcGIS Pro Integration
+# ArcGIS Pro Integration (Optional)
 
-The PostGIS database includes read-only views designed for ArcGIS Pro compatibility. The application schema uses mixed-case column names, generic geometry types, and jsonb fields that ArcGIS Pro's PostgreSQL driver cannot handle directly. The views translate these into ArcGIS-friendly equivalents: lowercase column names, explicitly typed geometry columns named `shape`, no jsonb, and mixed-geometry tables split by type.
+The PostGIS database can include read-only views designed for ArcGIS Pro compatibility. This is **optional** — only needed if you want to connect ArcGIS Pro directly to the PostGIS database for cartographic visualization or spatial analysis.
+
+The application schema uses mixed-case column names, generic geometry types, and jsonb fields that ArcGIS Pro's PostgreSQL driver cannot handle directly. The views translate these into ArcGIS-friendly equivalents: lowercase column names, explicitly typed geometry columns named `shape`, no jsonb, and mixed-geometry tables split by type.
 
 ## Setup
 
-The views are created automatically on first database startup via `infra/local/init-scripts/02-arcgis-views.sql`. If the database already exists, run the script manually:
+The views script is located at `infra/local/optional/arcgis-views.sql` and is **not** run automatically during database setup. The application tables must exist first (EF Core migrations must have run).
+
+To install the views, run the script manually:
 
 ```bash
-docker exec georisk-postgres psql -U gis -d georisk -f /docker-entrypoint-initdb.d/02-arcgis-views.sql
+docker exec georisk-postgres psql -U gis -d georisk -f /opt/georisk/arcgis-views.sql
 ```
+
+The script uses `CREATE OR REPLACE VIEW` and is safe to re-run at any time.
 
 ## Connecting ArcGIS Pro
 
