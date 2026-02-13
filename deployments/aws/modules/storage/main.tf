@@ -11,8 +11,9 @@ locals {
 }
 
 resource "aws_s3_bucket" "data" {
-  for_each = local.buckets
-  bucket   = each.value
+  for_each      = local.buckets
+  bucket        = each.value
+  force_destroy = true
 
   tags = { Name = each.value }
 }
@@ -90,8 +91,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
 
 # Web UI static hosting bucket
 resource "aws_s3_bucket" "webui" {
-  bucket = "georisk-${var.env_name}-webui"
-  tags   = { Name = "georisk-${var.env_name}-webui" }
+  bucket        = "georisk-${var.env_name}-webui"
+  force_destroy = true
+  tags          = { Name = "georisk-${var.env_name}-webui" }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "webui" {
