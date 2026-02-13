@@ -711,5 +711,66 @@ def health() -> None:
         sys.exit(1)
 
 
+@cli.group()
+def model() -> None:
+    """Manage ML models in object storage (S3/MinIO)."""
+    pass
+
+
+@model.command("upload")
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.option("--name", default="landslide", help="Model name (storage prefix)")
+@click.option("--version", default=None, help="Optional version string (e.g. v1)")
+def model_upload(path: Path, name: str, version: str | None) -> None:
+    """Upload a model file to object storage."""
+    try:
+        storage = MinioStorage()
+        result = storage.upload_model(path, model_name=name, version=version)
+        click.echo(f"Uploaded {path.name} -> {result}")
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@model.command("download")
+@click.option("--name", default="landslide", help="Model name (storage prefix)")
+@click.option("--version", default=None, help="Optional version string")
+@click.option("--output", "-o", type=click.Path(path_type=Path), default=None,
+              help="Output path (default: ~/.cache/georisk/models/landslide_model.pth)")
+def model_download(name: str, version: str | None, output: Path | None) -> None:
+    """Download a model file from object storage."""
+    from georisk.raster.landslide import DEFAULT_MODEL_PATH
+
+    try:
+        target = output or DEFAULT_MODEL_PATH
+        storage = MinioStorage()
+        storage.download_model(target, model_name=name, version=version)
+        click.echo(f"Downloaded to {target}")
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@model.command("list")
+@click.option("--name", default=None, help="Filter by model name")
+def model_list(name: str | None) -> None:
+    """List models in object storage."""
+    try:
+        storage = MinioStorage()
+        objects = storage.list_models(model_name=name)
+
+        if not objects:
+            click.echo("No models found in storage.")
+            return
+
+        click.echo(f"Found {len(objects)} model file(s):")
+        for obj in objects:
+            size_mb = obj["size"] / (1024 * 1024)
+            click.echo(f"  {obj['key']}  ({size_mb:.1f} MB, {obj['last_modified']})")
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()

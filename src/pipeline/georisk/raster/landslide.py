@@ -68,6 +68,40 @@ class LandslideResult:
     confidence_threshold: float
 
 
+def _ensure_model_cached(target_path: Path) -> Path | None:
+    """Try to download the landslide model from object storage to local cache.
+
+    Returns the path if successfully downloaded, or None if the model is not
+    available in storage or storage is unreachable. Designed for graceful
+    degradation — storage errors are logged but never raised.
+
+    Args:
+        target_path: Local path to download the model to.
+
+    Returns:
+        Path to the cached model file, or None if not available.
+    """
+    if target_path.exists():
+        return target_path
+
+    try:
+        from georisk.storage.minio import MinioStorage
+
+        storage = MinioStorage()
+        if storage.model_exists():
+            logger.info("Downloading landslide model from object storage")
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            storage.download_model(target_path)
+            logger.info("Landslide model cached", path=str(target_path))
+            return target_path
+        else:
+            logger.debug("Landslide model not found in object storage")
+            return None
+    except Exception as e:
+        logger.debug(f"Could not retrieve model from object storage: {e}")
+        return None
+
+
 def load_landslide_model(
     model_path: str | Path | None = None,
     device: str | None = None,
@@ -110,11 +144,16 @@ def load_landslide_model(
         if alt_path.exists():
             model_path = alt_path
         else:
-            raise FileNotFoundError(
-                f"Landslide model not found at {model_path} or {alt_path}. "
-                f"Train a model first (see src/machine_learning/landslide/) "
-                f"or set LANDSLIDE_MODEL_PATH."
-            )
+            # Try downloading from object storage (S3/MinIO)
+            cached = _ensure_model_cached(DEFAULT_MODEL_PATH)
+            if cached is not None:
+                model_path = cached
+            else:
+                raise FileNotFoundError(
+                    f"Landslide model not found at {model_path} or {alt_path}. "
+                    f"Upload with 'georisk model upload', train a model "
+                    f"(see machine-learning/landslide/), or set LANDSLIDE_MODEL_PATH."
+                )
 
     logger.info("Loading landslide model", path=str(model_path), device=device)
 

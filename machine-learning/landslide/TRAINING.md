@@ -84,12 +84,15 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download('ibm
 # 3. Train (best config from our experiments, ~30 min on RTX 4070)
 python train.py --data-dir ./data --output landslide_model.pth --epochs 100 --batch-size 16 --encoder-weights imagenet --max-pos-weight 10
 
-# 4. Deploy model to where the inference pipeline expects it
+# 4. Upload model to object storage (S3/MinIO)
+python -m georisk model upload landslide_model.pth
+
+# Or copy to local cache directly
 mkdir "$HOME\.cache\georisk\models" -Force
 copy landslide_model.pth "$HOME\.cache\georisk\models\landslide_model.pth"
 ```
 
-The model path can also be overridden via the `LANDSLIDE_MODEL_PATH` environment variable.
+Once uploaded to object storage, the pipeline auto-downloads the model on first use. You can also override the model path via the `LANDSLIDE_MODEL_PATH` environment variable.
 
 Without a deployed model, the pipeline runs normally but skips landslide classification.
 
