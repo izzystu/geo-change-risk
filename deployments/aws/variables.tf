@@ -16,8 +16,3 @@ variable "api_key" {
   sensitive   = true
 }
 
-variable "pipeline_api_url" {
-  description = "App Runner API URL for pipeline callbacks (set automatically by deploy script after first apply)"
-  type        = string
-  default     = ""
-}

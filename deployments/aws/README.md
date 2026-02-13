@@ -28,7 +28,7 @@ Internet
 ```
 deployments/aws/
 ├── main.tf                 Root module — wires all child modules together
-├── variables.tf            Input variables (region, env_name, api_key, pipeline_api_url)
+├── variables.tf            Input variables (region, env_name, api_key)
 ├── outputs.tf              Exported values (API URL, CloudFront URL, bucket names)
 ├── backend.tf              Terraform backend configuration
 ├── environments/
@@ -72,11 +72,12 @@ pipeline ────→ scheduler       (cluster_arn, task_definition_arn, task
 scheduler ───→ apprunner       (scheduler_role_arn)
 ```
 
-**Circular dependency:** The pipeline task definition needs the App Runner URL
-(for API callbacks), but App Runner needs the pipeline's cluster ARN. This is
-resolved with `pipeline_api_url` as an external variable and a two-phase apply
-in the deploy script (Phase 1 creates everything, Phase 2 feeds the API URL
-back into the pipeline task definition).
+**No circular dependency:** The pipeline task definition references the API URL
+and API key via SSM Parameter Store ARN strings (constructed from region,
+account ID, and env_name — not Terraform resource references). The apprunner
+module writes these SSM parameters after creating the App Runner service. ECS
+resolves the SSM values at task launch time, so the pipeline module has no
+Terraform dependency on the apprunner module.
 
 ## What Each Module Creates
 
@@ -140,7 +141,7 @@ Docker images are built locally, pushed here, and pulled by App Runner / ECS.
 | Capacity providers | FARGATE_SPOT as default (cheaper, interruptible) |
 | Task definition | Container recipe: image, CPU/memory, env vars, log config |
 | CloudWatch log group | Receives container stdout/stderr |
-| Execution role | Used by ECS to pull images and write logs |
+| Execution role | Used by ECS to pull images, write logs, and read SSM secrets |
 | Task role | Used by the running container for S3, Secrets Manager |
 
 **Execution role vs task role:** The execution role is ECS's identity for

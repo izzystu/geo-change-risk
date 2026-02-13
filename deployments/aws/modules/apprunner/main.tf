@@ -261,5 +261,20 @@ resource "aws_apprunner_service" "api" {
   tags = { Name = "georisk-${var.env_name}-api" }
 }
 
+# --- SSM Parameters for Pipeline (breaks circular dependency) ---
+resource "aws_ssm_parameter" "pipeline_api_url" {
+  name  = "/georisk/${var.env_name}/pipeline/api-url"
+  type  = "String"
+  value = "https://${aws_apprunner_service.api.service_url}"
+  tags  = { Name = "georisk-${var.env_name}-pipeline-api-url" }
+}
+
+resource "aws_ssm_parameter" "pipeline_api_key" {
+  name  = "/georisk/${var.env_name}/pipeline/api-key"
+  type  = "SecureString"
+  value = var.api_key
+  tags  = { Name = "georisk-${var.env_name}-pipeline-api-key" }
+}
+
 output "service_url" { value = aws_apprunner_service.api.service_url }
 output "service_arn" { value = aws_apprunner_service.api.arn }
