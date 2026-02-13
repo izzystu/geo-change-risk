@@ -59,8 +59,6 @@ module "pipeline" {
   pipeline_sg_id        = module.networking.pipeline_security_group_id
   rds_secret_arn        = module.database.credentials_secret_arn
   s3_bucket_arns        = module.storage.bucket_arns
-  api_url               = var.pipeline_api_url
-  api_key               = var.api_key
   s3_bucket_names       = module.storage.bucket_names
 }
 

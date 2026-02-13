@@ -95,7 +95,7 @@ terraform apply -var-file="environments\dev.tfvars" '-target=module.ecr'
 The script will:
 1. Validate `TF_VAR_api_key` is set
 2. Build API and Pipeline Docker images and push to ECR
-3. Run `terraform apply` (two-phase: create infra, then update pipeline with API URL)
+3. Run `terraform apply` (single phase — pipeline reads API URL from SSM at runtime)
 4. Build the web UI as a static export with the AWS API URL baked in
 5. Upload the web UI to S3 and invalidate CloudFront cache
 6. Print the deployment URLs
@@ -148,8 +148,8 @@ curl -H "X-Api-Key: your-key" https://<app-runner-url>/api/areas-of-interest
 
 | Variable | Value | Description |
 |----------|-------|-------------|
-| `GEORISK_API_URL` | `https://<app-runner-url>` | API endpoint for pipeline callbacks |
-| `GEORISK_API_KEY` | (from Terraform) | API key for authenticated callbacks |
+| `GEORISK_API_URL` | (from SSM at task launch) | API endpoint for pipeline callbacks |
+| `GEORISK_API_KEY` | (from SSM at task launch) | API key for authenticated callbacks |
 | `AWS_REGION` | `us-east-1` | AWS region for boto3 S3 client |
 | `ML_ENABLED` | `false` | ML disabled in initial deployment |
 | `MINIO_ENDPOINT` | (unset) | Empty = S3 mode via IAM role |
@@ -326,14 +326,17 @@ aws cloudfront create-invalidation --distribution-id <dist-id> --paths "/*"
 
 Invalidations take 1-2 minutes. You can also test with an incognito/private browser window to bypass local cache.
 
-### Terraform Circular Dependency (pipeline <-> apprunner)
+### Pipeline Missing API URL / Key
 
-The pipeline ECS task needs the App Runner API URL, and App Runner needs the pipeline task definition ARN. This is resolved with a two-phase apply:
+The pipeline ECS task reads `GEORISK_API_URL` and `GEORISK_API_KEY` from SSM Parameter Store at launch time (via the ECS `secrets` block). If the pipeline can't reach the API:
 
-1. **Phase 1:** `terraform apply` with `pipeline_api_url=""` — creates all resources, pipeline task omits `GEORISK_API_URL`
-2. **Phase 2:** `terraform apply` with `pipeline_api_url=<new-url>` — updates the task definition with the API URL
-
-The deploy script handles this automatically.
+1. Verify SSM parameters exist:
+   ```powershell
+   aws ssm get-parameter --name /georisk/dev/pipeline/api-url --query Parameter.Value
+   aws ssm get-parameter --name /georisk/dev/pipeline/api-key --with-decryption --query Parameter.Value
+   ```
+2. Verify the pipeline execution role has `ssm:GetParameters` permission
+3. Check CloudWatch logs at `/ecs/georisk-dev-pipeline` for injection errors
 
 ## Windows PowerShell Notes
 

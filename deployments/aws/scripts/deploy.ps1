@@ -88,22 +88,10 @@ if (-not $SkipTerraform) {
 
     Push-Location $TerraformDir
     try {
-        # Check if API URL already exists from a previous deploy
-        $ExistingApiUrl = ""
-        try { $ExistingApiUrl = terraform output -raw api_url 2>$null } catch {}
-
-        # Phase 1: Create/update all infrastructure
         terraform init
-        terraform apply -var-file="environments\$Environment.tfvars" -var "pipeline_api_url=$ExistingApiUrl" -auto-approve
-
-        # Read the (possibly new) API URL
-        $NewApiUrl = terraform output -raw api_url
-
-        # Phase 2: Always re-apply with the API URL to ensure the pipeline task
-        # definition has the correct GEORISK_API_URL and GEORISK_API_KEY env vars
-        # (these depend on both the API URL and the api_key, which may change independently)
-        Write-Host "Updating pipeline task definition with API URL..." -ForegroundColor Yellow
-        terraform apply -var-file="environments\$Environment.tfvars" -var "pipeline_api_url=$NewApiUrl" -auto-approve
+        if ($LASTEXITCODE -ne 0) { Write-Error "terraform init failed"; exit 1 }
+        terraform apply -var-file="environments\$Environment.tfvars" -auto-approve
+        if ($LASTEXITCODE -ne 0) { Write-Error "terraform apply failed"; exit 1 }
     }
     finally {
         Pop-Location
@@ -119,6 +107,11 @@ $CloudFrontUrl = terraform output -raw cloudfront_url
 $WebUIBucket = terraform output -raw webui_bucket
 $CloudFrontDistId = terraform output -raw cloudfront_distribution_id
 Pop-Location
+
+if (-not $ApiUrl) {
+    Write-Error "Failed to read API URL from Terraform outputs. Run 'terraform apply' manually and retry with -SkipTerraform."
+    exit 1
+}
 
 # --- Step 3: Build and deploy Web UI ---
 if (-not $SkipWebUI) {

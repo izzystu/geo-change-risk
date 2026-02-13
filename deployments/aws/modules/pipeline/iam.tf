@@ -19,6 +19,22 @@ resource "aws_iam_role_policy_attachment" "execution_ecr" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+resource "aws_iam_role_policy" "execution_ssm" {
+  name = "ssm-secrets"
+  role = aws_iam_role.execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "ssm:GetParameters"
+      Resource = [
+        "${local.ssm_prefix}/georisk/${var.env_name}/pipeline/*"
+      ]
+    }]
+  })
+}
+
 # --- Task Role (S3, Secrets Manager, API access) ---
 resource "aws_iam_role" "task" {
   name = "georisk-${var.env_name}-pipeline-task"

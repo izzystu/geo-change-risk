@@ -6,12 +6,13 @@ variable "pipeline_subnet_ids" { type = list(string) }
 variable "pipeline_sg_id" { type = string }
 variable "rds_secret_arn" { type = string }
 variable "s3_bucket_arns" { type = list(string) }
-variable "api_url" { type = string }
-variable "api_key" {
-  type      = string
-  sensitive = true
-}
 variable "s3_bucket_names" { type = map(string) }
+
+data "aws_caller_identity" "current" {}
+
+locals {
+  ssm_prefix = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter"
+}
 
 # --- ECS Cluster ---
 resource "aws_ecs_cluster" "main" {
@@ -63,18 +64,23 @@ resource "aws_ecs_task_definition" "pipeline" {
     image     = "${var.pipeline_ecr_repo_url}:latest"
     essential = true
 
-    environment = concat(
-      [
-        { name = "ML_ENABLED", value = "false" },
-        { name = "AWS_REGION", value = var.region },
-        { name = "MINIO_BUCKET_IMAGERY", value = var.s3_bucket_names["imagery"] },
-        { name = "MINIO_BUCKET_CHANGES", value = var.s3_bucket_names["changes"] }
-      ],
-      var.api_url != "" ? [
-        { name = "GEORISK_API_URL", value = "https://${var.api_url}" },
-        { name = "GEORISK_API_KEY", value = var.api_key }
-      ] : []
-    )
+    environment = [
+      { name = "ML_ENABLED", value = "false" },
+      { name = "AWS_REGION", value = var.region },
+      { name = "MINIO_BUCKET_IMAGERY", value = var.s3_bucket_names["imagery"] },
+      { name = "MINIO_BUCKET_CHANGES", value = var.s3_bucket_names["changes"] }
+    ]
+
+    secrets = [
+      {
+        name      = "GEORISK_API_URL"
+        valueFrom = "${local.ssm_prefix}/georisk/${var.env_name}/pipeline/api-url"
+      },
+      {
+        name      = "GEORISK_API_KEY"
+        valueFrom = "${local.ssm_prefix}/georisk/${var.env_name}/pipeline/api-key"
+      }
+    ]
 
     logConfiguration = {
       logDriver = "awslogs"
