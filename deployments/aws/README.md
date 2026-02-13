@@ -38,7 +38,7 @@ deployments/aws/
 └── modules/
     ├── networking/         VPC, subnets, internet gateway, VPC endpoints, security groups
     ├── database/           RDS PostgreSQL, Secrets Manager credentials
-    ├── storage/            S3 buckets (4 data + 1 web UI), lifecycle rules, CORS
+    ├── storage/            S3 buckets (5 data + 1 web UI), lifecycle rules, CORS
     ├── ecr/                Container registries for API and pipeline images
     ├── pipeline/           ECS cluster, Fargate task definition, IAM roles
     ├── apprunner/          App Runner service, VPC connector, IAM roles
@@ -122,6 +122,7 @@ in source code — App Runner reads it from Secrets Manager via
 | `georisk-{env}-artifacts` | Processing artifacts | Auto-delete after 90 days |
 | `georisk-{env}-imagery` | RGB satellite imagery (before/after) | Permanent |
 | `georisk-{env}-changes` | Change detection GeoJSON | Permanent |
+| `georisk-{env}-models` | ML model weights | Permanent |
 | `georisk-{env}-webui` | Static SvelteKit build | Overwritten on deploy |
 
 All buckets are private (public access blocked), encrypted (AES256), and

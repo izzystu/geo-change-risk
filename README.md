@@ -74,8 +74,8 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 | **Database** | PostgreSQL + PostGIS | Spatial data storage and queries |
 | **Object Storage** | MinIO (local) / S3 (AWS) | Raster imagery and processing artifacts |
 | **API** | ASP.NET Core 8 | REST API with EF Core + NetTopologySuite |
-| **Raster Pipeline** | Python 3.11+ | Geospatial processing (rasterio, geopandas, pystac) |
-| **Web UI** | SvelteKit + ArcGIS Maps SDK + D3.js | Interactive mapping, visualization, and data graphics |
+| **Raster Pipeline** | Python 3.11+ | Geospatial processing (rasterio, geopandas, pystac-client) |
+| **Web UI** | SvelteKit + ArcGIS Maps SDK | Interactive mapping and visualization |
 | **Background Jobs** | Hangfire (local) / EventBridge (AWS) | Scheduled processing and notifications |
 | **Cloud Deployment** | Terraform + AWS (App Runner, ECS Fargate, RDS, S3, CloudFront) | Production cloud infrastructure |
 | **ML Classification** | PyTorch + TorchGeo | Land cover classification (EuroSAT) |
@@ -317,8 +317,6 @@ The platform deploys to AWS with a single script. See [docs/aws-deployment.md](d
 Architecture: App Runner (scale-to-zero API, ~$2/month idle) + ECS Fargate Spot (on-demand pipeline) + RDS PostgreSQL + S3 + CloudFront + EventBridge Scheduler + VPC Endpoints. Estimated ~$47/month total.
 
 The architecture is multi-cloud portable via three DI-swappable interfaces (`IObjectStorageService`, `ISchedulerService`, `IPipelineExecutor`). See [docs/multi-cloud-strategy.md](docs/multi-cloud-strategy.md) for Azure and GCP deployment paths.
-
-## Roadmap
 
 ## Machine Learning
 

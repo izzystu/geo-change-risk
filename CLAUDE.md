@@ -51,7 +51,7 @@ deployments/aws/                         # Terraform modules (apprunner, pipelin
 Prerequisites: Docker Desktop, .NET 8 SDK, Python 3.11+, Node.js 18+
 
 1. Infrastructure: `.\deployments\local\setup.ps1` (generates credentials, starts PostgreSQL + MinIO containers)
-2. API: `cd src/api/GeoChangeRisk.Api && dotnet run` (runs on localhost:5062, Swagger at `/swagger`, Hangfire at `/hangfire`)
+2. API: `cd src/api/GeoChangeRisk.Api && dotnet run` (runs on localhost:5074, Swagger at `/swagger`, Hangfire at `/hangfire`)
 3. Pipeline: `cd src/pipeline && pip install -e .` (base) or `pip install -e ".[ml]"` (with ML land cover classification), then `python -m georisk <command>` (commands: `search`, `check`, `process`, `fetch`, `status`, `health`, `model upload/download/list`)
 4. Web UI: `cd src/web-ui && npm install && npm run dev` (runs on localhost:5173)
 
