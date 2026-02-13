@@ -42,6 +42,12 @@
     <PackageReference Include="Hangfire.Core" Version="1.8.22" />
     <PackageReference Include="Hangfire.AspNetCore" Version="1.8.22" />
     <PackageReference Include="Hangfire.PostgreSql" Version="1.20.13" />
+
+    <!-- AWS SDK for cloud deployment -->
+    <PackageReference Include="AWSSDK.S3" Version="3.7.510.5" />
+    <PackageReference Include="AWSSDK.ECS" Version="3.7.508.10" />
+    <PackageReference Include="AWSSDK.Scheduler" Version="3.7.502.39" />
+    <PackageReference Include="AWSSDK.CloudWatchLogs" Version="3.7.507.23" />
   </ItemGroup>
 
 </Project>

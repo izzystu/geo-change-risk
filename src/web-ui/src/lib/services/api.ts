@@ -184,14 +184,29 @@ export const CriticalityColors: Record<number, string> = {
 	3: '#ef4444'  // red
 };
 
+function getAuthHeaders(): Record<string, string> {
+	if (typeof localStorage === 'undefined') return {};
+	const key = localStorage.getItem('georisk_api_key');
+	if (key) return { 'X-Api-Key': key };
+	return {};
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 	const response = await fetch(url, {
 		...options,
 		headers: {
 			'Content-Type': 'application/json',
+			...getAuthHeaders(),
 			...options?.headers
 		}
 	});
+
+	if (response.status === 401) {
+		if (typeof window !== 'undefined') {
+			window.dispatchEvent(new CustomEvent('georisk:unauthorized'));
+		}
+		throw new Error('Unauthorized — invalid or missing API key');
+	}
 
 	if (!response.ok) {
 		throw new Error(`API error: ${response.status} ${response.statusText}`);
@@ -263,8 +278,14 @@ export const api = {
 
 		const response = await fetch(url, {
 			method: 'POST',
+			headers: getAuthHeaders(),
 			body: formData
 		});
+
+		if (response.status === 401) {
+			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('georisk:unauthorized'));
+			throw new Error('Unauthorized — invalid or missing API key');
+		}
 
 		if (!response.ok) {
 			throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
@@ -275,8 +296,14 @@ export const api = {
 
 	async deleteImageryScene(aoiId: string, sceneId: string): Promise<void> {
 		const response = await fetch(`${API_BASE}/api/imagery/${aoiId}/${sceneId}`, {
-			method: 'DELETE'
+			method: 'DELETE',
+			headers: getAuthHeaders()
 		});
+
+		if (response.status === 401) {
+			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('georisk:unauthorized'));
+			throw new Error('Unauthorized — invalid or missing API key');
+		}
 
 		if (!response.ok) {
 			throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
@@ -362,8 +389,14 @@ export const api = {
 	// Delete processing run
 	async deleteProcessingRun(runId: string): Promise<void> {
 		const response = await fetch(`${API_BASE}/api/processing/runs/${runId}`, {
-			method: 'DELETE'
+			method: 'DELETE',
+			headers: getAuthHeaders()
 		});
+
+		if (response.status === 401) {
+			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('georisk:unauthorized'));
+			throw new Error('Unauthorized — invalid or missing API key');
+		}
 
 		if (!response.ok) {
 			throw new Error(`Delete failed: ${response.status} ${response.statusText}`);

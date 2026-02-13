@@ -43,7 +43,8 @@ public class ImageryController : ControllerBase
             return NotFound(new { Error = $"Area of Interest '{aoiId}' not found" });
         }
 
-        var bucket = _configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
+        var bucket = _configuration["Storage:BucketImagery"]
+            ?? _configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
         var prefix = $"{aoiId}/";
 
         try
@@ -97,7 +98,8 @@ public class ImageryController : ControllerBase
             return NotFound(new { Error = $"Area of Interest '{aoiId}' not found" });
         }
 
-        var bucket = _configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
+        var bucket = _configuration["Storage:BucketImagery"]
+            ?? _configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
         var prefix = $"{aoiId}/{sceneId}/";
 
         try
@@ -212,7 +214,8 @@ public class ImageryController : ControllerBase
             return BadRequest(new { Error = "Only .tif files are allowed" });
         }
 
-        var bucket = _configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
+        var bucket = _configuration["Storage:BucketImagery"]
+            ?? _configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
         var objectPath = $"{aoiId}/{sceneId}/{actualFileName}";
 
         try
@@ -252,7 +255,8 @@ public class ImageryController : ControllerBase
             return NotFound(new { Error = $"Area of Interest '{aoiId}' not found" });
         }
 
-        var bucket = _configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
+        var bucket = _configuration["Storage:BucketImagery"]
+            ?? _configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
         var prefix = $"{aoiId}/{sceneId}/";
 
         try

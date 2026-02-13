@@ -1,6 +1,4 @@
-using System.Diagnostics;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using GeoChangeRisk.Contracts;
 using GeoChangeRisk.Data;
 using GeoChangeRisk.Data.Models;
 using Hangfire;
@@ -10,23 +8,24 @@ namespace GeoChangeRisk.Api.Jobs;
 
 /// <summary>
 /// Hangfire job that checks for new satellite imagery and triggers processing runs.
+/// In EventBridge mode, this job is only used locally — on AWS, EventBridge triggers ECS directly.
 /// </summary>
 public class ScheduledCheckJob
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ScheduledCheckJob> _logger;
-    private readonly IConfiguration _configuration;
+    private readonly IPipelineExecutor _executor;
     private readonly IBackgroundJobClient _backgroundJobs;
 
     public ScheduledCheckJob(
         IServiceScopeFactory scopeFactory,
         ILogger<ScheduledCheckJob> logger,
-        IConfiguration configuration,
+        IPipelineExecutor executor,
         IBackgroundJobClient backgroundJobs)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
-        _configuration = configuration;
+        _executor = executor;
         _backgroundJobs = backgroundJobs;
     }
 
@@ -69,8 +68,8 @@ public class ScheduledCheckJob
                 return;
             }
 
-            // Run georisk check command
-            var checkResult = await RunCheckCommandAsync(aoiId, aoi.MaxCloudCover, cancellationToken);
+            // Run georisk check command via executor
+            var checkResult = await _executor.RunCheckAsync(aoiId, aoi.MaxCloudCover, cancellationToken);
 
             aoi.LastCheckedAt = DateTime.UtcNow;
 
@@ -132,103 +131,5 @@ public class ScheduledCheckJob
                 await context.SaveChangesAsync(cancellationToken);
             }
         }
-    }
-
-    private async Task<CheckCommandResult> RunCheckCommandAsync(
-        string aoiId, double maxCloudCover, CancellationToken cancellationToken)
-    {
-        var pythonExecutable = string.IsNullOrWhiteSpace(_configuration["Python:Executable"])
-            ? "python"
-            : _configuration["Python:Executable"]!;
-        var pipelineDir = string.IsNullOrWhiteSpace(_configuration["Python:PipelineDir"])
-            ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "pipeline"))
-            : _configuration["Python:PipelineDir"]!;
-
-        var arguments = $"-m georisk.cli check --aoi-id={aoiId} --max-cloud={maxCloudCover} --json";
-
-        _logger.LogDebug("Running: {Executable} {Arguments} in {WorkingDir}",
-            pythonExecutable, arguments, pipelineDir);
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = pythonExecutable,
-            Arguments = arguments,
-            WorkingDirectory = pipelineDir,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = new Process { StartInfo = startInfo };
-
-        var stdout = new System.Text.StringBuilder();
-        var stderr = new System.Text.StringBuilder();
-
-        process.OutputDataReceived += (_, e) =>
-        {
-            if (e.Data != null) stdout.AppendLine(e.Data);
-        };
-        process.ErrorDataReceived += (_, e) =>
-        {
-            if (e.Data != null)
-            {
-                stderr.AppendLine(e.Data);
-                _logger.LogDebug("[georisk check] {Line}", e.Data);
-            }
-        };
-
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            try { process.Kill(true); } catch { /* process may have already exited */ }
-            throw;
-        }
-
-        var exitCode = process.ExitCode;
-
-        if (exitCode == 0)
-        {
-            var json = stdout.ToString().Trim();
-            var result = JsonSerializer.Deserialize<CheckCommandResult>(json);
-            return result ?? new CheckCommandResult();
-        }
-
-        if (exitCode == 1)
-        {
-            // No new data — not an error
-            return new CheckCommandResult();
-        }
-
-        // Exit code 2 or other = error
-        throw new InvalidOperationException(
-            $"georisk check failed (exit code {exitCode}): {stderr.ToString().Trim()}");
-    }
-
-    private class CheckCommandResult
-    {
-        [JsonPropertyName("new_data")]
-        public bool NewData { get; set; }
-
-        [JsonPropertyName("scene_id")]
-        public string? SceneId { get; set; }
-
-        [JsonPropertyName("scene_date")]
-        public string? SceneDate { get; set; }
-
-        [JsonPropertyName("cloud_cover")]
-        public double CloudCover { get; set; }
-
-        [JsonPropertyName("recommended_before_date")]
-        public string RecommendedBeforeDate { get; set; } = "";
-
-        [JsonPropertyName("recommended_after_date")]
-        public string RecommendedAfterDate { get; set; } = "";
     }
 }

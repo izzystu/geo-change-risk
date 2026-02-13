@@ -1,9 +1,7 @@
-using GeoChangeRisk.Api.Jobs;
 using GeoChangeRisk.Api.Services;
 using GeoChangeRisk.Contracts;
 using GeoChangeRisk.Data;
 using GeoChangeRisk.Data.Models;
-using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,18 +17,18 @@ public class AreasOfInterestController : ControllerBase
     private readonly GeoChangeDbContext _context;
     private readonly ILogger<AreasOfInterestController> _logger;
     private readonly IGeometryParsingService _geometryService;
-    private readonly IRecurringJobManager _recurringJobs;
+    private readonly ISchedulerService _scheduler;
 
     public AreasOfInterestController(
         GeoChangeDbContext context,
         ILogger<AreasOfInterestController> logger,
         IGeometryParsingService geometryService,
-        IRecurringJobManager recurringJobs)
+        ISchedulerService scheduler)
     {
         _context = context;
         _logger = logger;
         _geometryService = geometryService;
-        _recurringJobs = recurringJobs;
+        _scheduler = scheduler;
     }
 
     /// <summary>
@@ -238,7 +236,7 @@ public class AreasOfInterestController : ControllerBase
             return NotFound(new { Error = $"Area of Interest '{id}' not found" });
         }
 
-        _recurringJobs.RemoveIfExists($"scheduled-check-{aoi.AoiId}");
+        await _scheduler.RemoveScheduleAsync(aoi.AoiId);
         _context.AreasOfInterest.Remove(aoi);
         await _context.SaveChangesAsync();
 
@@ -294,16 +292,12 @@ public class AreasOfInterestController : ControllerBase
             aoi.MaxCloudCover = request.MaxCloudCover.Value;
         }
 
-        // Validate cron expression via Hangfire BEFORE persisting changes
+        // Register or remove schedule via the scheduler service
         if (aoi.ProcessingEnabled && !string.IsNullOrEmpty(aoi.ProcessingSchedule))
         {
             try
             {
-                _recurringJobs.AddOrUpdate<ScheduledCheckJob>(
-                    $"scheduled-check-{aoi.AoiId}",
-                    job => job.ExecuteAsync(aoi.AoiId, CancellationToken.None),
-                    aoi.ProcessingSchedule,
-                    new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+                await _scheduler.AddOrUpdateScheduleAsync(aoi.AoiId, aoi.ProcessingSchedule);
             }
             catch (ArgumentException ex)
             {
@@ -312,7 +306,7 @@ public class AreasOfInterestController : ControllerBase
         }
         else
         {
-            _recurringJobs.RemoveIfExists($"scheduled-check-{aoi.AoiId}");
+            await _scheduler.RemoveScheduleAsync(aoi.AoiId);
         }
 
         aoi.UpdatedAt = DateTime.UtcNow;

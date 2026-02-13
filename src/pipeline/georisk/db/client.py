@@ -26,6 +26,7 @@ class ApiClient:
         config = get_config()
         self.base_url = (base_url or config.api.base_url).rstrip("/")
         self.timeout = timeout or config.api.timeout
+        self.api_key = config.api.api_key
 
         self._client: httpx.Client | None = None
 
@@ -33,9 +34,13 @@ class ApiClient:
     def client(self) -> httpx.Client:
         """Get or create the HTTP client."""
         if self._client is None:
+            headers = {}
+            if self.api_key:
+                headers["X-Api-Key"] = self.api_key
             self._client = httpx.Client(
                 base_url=self.base_url,
                 timeout=self.timeout,
+                headers=headers,
             )
         return self._client
 
