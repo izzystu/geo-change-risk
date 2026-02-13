@@ -1,11 +1,10 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using GeoChangeRisk.Api.Jobs;
+using GeoChangeRisk.Contracts;
 using GeoChangeRisk.Data;
 using GeoChangeRisk.Data.Models;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -19,6 +18,7 @@ public class ScheduledCheckJobTests : IDisposable
     private readonly GeoChangeDbContext _context;
     private readonly ScheduledCheckJob _job;
     private readonly Mock<IBackgroundJobClient> _backgroundJobsMock;
+    private readonly Mock<IPipelineExecutor> _executorMock;
     private readonly GeometryFactory _factory;
 
     public ScheduledCheckJobTests()
@@ -30,6 +30,7 @@ public class ScheduledCheckJobTests : IDisposable
         _context = new TestDbContext(options);
         _factory = new GeometryFactory(new PrecisionModel(), 4326);
         _backgroundJobsMock = new Mock<IBackgroundJobClient>();
+        _executorMock = new Mock<IPipelineExecutor>();
 
         // Mock IServiceScopeFactory to return a scope that provides our InMemory context
         var serviceProviderMock = new Mock<IServiceProvider>();
@@ -43,15 +44,15 @@ public class ScheduledCheckJobTests : IDisposable
         var scopeFactoryMock = new Mock<IServiceScopeFactory>();
         scopeFactoryMock.Setup(f => f.CreateScope()).Returns(scopeMock.Object);
 
-        // Mock IConfiguration with dummy Python paths
-        var configMock = new Mock<IConfiguration>();
-        configMock.Setup(c => c["Python:Executable"]).Returns("python");
-        configMock.Setup(c => c["Python:PipelineDir"]).Returns("C:\\nonexistent\\pipeline");
+        // Default: RunCheckAsync returns no new data
+        _executorMock
+            .Setup(e => e.RunCheckAsync(It.IsAny<string>(), It.IsAny<double>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CheckCommandResult());
 
         _job = new ScheduledCheckJob(
             scopeFactoryMock.Object,
             Mock.Of<ILogger<ScheduledCheckJob>>(),
-            configMock.Object,
+            _executorMock.Object,
             _backgroundJobsMock.Object);
     }
 
@@ -218,9 +219,7 @@ public class ScheduledCheckJobTests : IDisposable
     }
 
     /// <summary>
-    /// Tests the JSON contract for CheckCommandResult. Since the class is private,
-    /// we create a duplicate test record with the same JsonPropertyName attributes
-    /// to verify the expected JSON format deserializes correctly.
+    /// Tests the JSON contract for CheckCommandResult (now public in GeoChangeRisk.Contracts).
     /// </summary>
     [Fact]
     public void CheckCommandResult_DeserializesValidJson()
@@ -238,7 +237,7 @@ public class ScheduledCheckJobTests : IDisposable
             """;
 
         // Act
-        var result = JsonSerializer.Deserialize<TestCheckCommandResult>(json);
+        var result = JsonSerializer.Deserialize<CheckCommandResult>(json);
 
         // Assert
         Assert.NotNull(result);
@@ -248,31 +247,6 @@ public class ScheduledCheckJobTests : IDisposable
         Assert.Equal(8.3, result.CloudCover);
         Assert.Equal("2023-10-15", result.RecommendedBeforeDate);
         Assert.Equal("2024-01-15", result.RecommendedAfterDate);
-    }
-
-    /// <summary>
-    /// Test duplicate of the private CheckCommandResult class to verify JSON contract.
-    /// Must have matching JsonPropertyName attributes.
-    /// </summary>
-    private class TestCheckCommandResult
-    {
-        [JsonPropertyName("new_data")]
-        public bool NewData { get; set; }
-
-        [JsonPropertyName("scene_id")]
-        public string? SceneId { get; set; }
-
-        [JsonPropertyName("scene_date")]
-        public string? SceneDate { get; set; }
-
-        [JsonPropertyName("cloud_cover")]
-        public double CloudCover { get; set; }
-
-        [JsonPropertyName("recommended_before_date")]
-        public string RecommendedBeforeDate { get; set; } = "";
-
-        [JsonPropertyName("recommended_after_date")]
-        public string RecommendedAfterDate { get; set; } = "";
     }
 
     public void Dispose()

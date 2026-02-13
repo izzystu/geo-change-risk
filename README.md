@@ -72,11 +72,12 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 | Layer | Technology | Purpose |
 |-------|------------|---------|
 | **Database** | PostgreSQL + PostGIS | Spatial data storage and queries |
-| **Object Storage** | MinIO (S3-compatible) | Raster imagery and processing artifacts |
+| **Object Storage** | MinIO (local) / S3 (AWS) | Raster imagery and processing artifacts |
 | **API** | ASP.NET Core 8 | REST API with EF Core + NetTopologySuite |
 | **Raster Pipeline** | Python 3.11+ | Geospatial processing (rasterio, geopandas, pystac) |
 | **Web UI** | SvelteKit + ArcGIS Maps SDK + D3.js | Interactive mapping, visualization, and data graphics |
-| **Background Jobs** | Hangfire | Scheduled processing and notifications |
+| **Background Jobs** | Hangfire (local) / EventBridge (AWS) | Scheduled processing and notifications |
+| **Cloud Deployment** | Terraform + AWS (App Runner, ECS Fargate, RDS, S3, CloudFront) | Production cloud infrastructure |
 | **ML Classification** | PyTorch + TorchGeo | Land cover classification (EuroSAT) |
 | **ML Segmentation** | PyTorch + segmentation-models-pytorch | Landslide detection (custom-trained U-Net) |
 
@@ -158,7 +159,7 @@ geo-change-risk/
 │   └── local/                     # Docker Compose, env templates
 ├── deployments/                # Deployment scripts
 │   ├── local/                     # Local development setup
-│   ├── aws/                       # AWS deployment (planned)
+│   ├── aws/                       # AWS deployment (Terraform + deploy script)
 │   └── azure/                     # Azure deployment (planned)
 ├── machine-learning/           # ML model training
 │   └── landslide/                 # U-Net landslide segmentation (training pipeline)
@@ -257,6 +258,7 @@ The included Paradise AOI covers the 2018 Camp Fire area with ~3,900 infrastruct
 | ML Landslide Detection | Complete | Custom U-Net trained on Landslide4Sense, integrated into pipeline and risk scoring |
 | Automated Scheduling | Complete | Per-AOI cron scheduling, cloud cover thresholds, `georisk check` CLI, Hangfire recurring jobs, Web UI scheduling panel |
 | Testing | Complete | xUnit (.NET API controllers, services, models) + pytest (Python pipeline raster processing, risk scoring) |
+| AWS Deployment | Complete | App Runner (API), ECS Fargate Spot (pipeline), RDS PostgreSQL, S3, CloudFront, EventBridge Scheduler, Terraform IaC |
 
 ## Automated Scheduling
 
@@ -300,21 +302,23 @@ curl -X PUT http://localhost:5074/api/areas-of-interest/paradise-ca/schedule \
 | Twice weekly (Mon/Thu) | `0 6 * * 1,4` |
 | Weekly (Monday) | `0 6 * * 1` |
 
-## ArcGIS Pro Integration
+## ArcGIS Pro Integration (Optional)
 
-The PostGIS database includes read-only views (`v_areas_of_interest`, `v_asset_*`, `v_change_polygons`, `v_risk_events`) for direct use in ArcGIS Pro. See [docs/arcgis-pro-setup.md](docs/arcgis-pro-setup.md) for connection instructions and view details.
+Optional read-only PostGIS views (`v_areas_of_interest`, `v_asset_*`, `v_change_polygons`, `v_risk_events`) can be installed for direct use in ArcGIS Pro. The views are not created automatically — run `infra/local/optional/arcgis-views.sql` manually after EF Core migrations. See [docs/arcgis-pro-setup.md](docs/arcgis-pro-setup.md) for setup instructions.
+
+### Cloud Deployment
+
+The platform deploys to AWS with a single script. See [docs/aws-deployment.md](docs/aws-deployment.md) for the full deployment guide.
+
+```powershell
+.\deployments\aws\scripts\deploy.ps1
+```
+
+Architecture: App Runner (scale-to-zero API, ~$2/month idle) + ECS Fargate Spot (on-demand pipeline) + RDS PostgreSQL + S3 + CloudFront + EventBridge Scheduler + VPC Endpoints. Estimated ~$47/month total.
+
+The architecture is multi-cloud portable via three DI-swappable interfaces (`IObjectStorageService`, `ISchedulerService`, `IPipelineExecutor`). See [docs/multi-cloud-strategy.md](docs/multi-cloud-strategy.md) for Azure and GCP deployment paths.
 
 ## Roadmap
-
-### AWS Cloud Deployment
-
-Deploy the full platform to AWS using Terraform. Replaces local Docker infrastructure with managed cloud services while preserving the local development workflow.
-
-- **Compute:** API on ECS Fargate (always-on), pipeline as on-demand ECS Fargate tasks
-- **Storage:** S3 replaces MinIO (boto3 already used — minimal code changes)
-- **Database:** RDS PostgreSQL 16 with PostGIS
-- **Web UI:** Static SvelteKit build served via CloudFront + S3
-- **IaC:** Modular Terraform with VPC, ALB, security groups, IAM roles
 
 ## Machine Learning
 

@@ -40,9 +40,14 @@ class MinioStorage:
         self.bucket_imagery = config.minio.bucket_imagery
         self.bucket_changes = config.minio.bucket_changes
 
-        # Build endpoint URL
-        protocol = "https" if self.secure else "http"
-        self.endpoint_url = f"{protocol}://{self.endpoint}"
+        # Determine if running in S3 mode (no endpoint) or MinIO mode
+        self._s3_mode = not self.endpoint
+
+        if not self._s3_mode:
+            protocol = "https" if self.secure else "http"
+            self.endpoint_url = f"{protocol}://{self.endpoint}"
+        else:
+            self.endpoint_url = None
 
         self._client = None
 
@@ -50,21 +55,30 @@ class MinioStorage:
     def client(self) -> Any:
         """Get or create the boto3 S3 client."""
         if self._client is None:
-            self._client = boto3.client(
-                "s3",
-                endpoint_url=self.endpoint_url,
-                aws_access_key_id=self.access_key,
-                aws_secret_access_key=self.secret_key,
-                config=BotoConfig(
-                    signature_version="s3v4",
-                    s3={"addressing_style": "path"},
-                ),
-            )
-            logger.info("Connected to MinIO", endpoint=self.endpoint)
+            if self._s3_mode:
+                # S3 mode: use IAM role credentials and default S3 endpoint
+                self._client = boto3.client("s3")
+                logger.info("Connected to AWS S3 (IAM role)")
+            else:
+                # MinIO mode: explicit endpoint, credentials, path addressing
+                self._client = boto3.client(
+                    "s3",
+                    endpoint_url=self.endpoint_url,
+                    aws_access_key_id=self.access_key,
+                    aws_secret_access_key=self.secret_key,
+                    config=BotoConfig(
+                        signature_version="s3v4",
+                        s3={"addressing_style": "path"},
+                    ),
+                )
+                logger.info("Connected to MinIO", endpoint=self.endpoint)
         return self._client
 
     def ensure_bucket(self, bucket: str) -> None:
         """Ensure a bucket exists, creating it if necessary.
+
+        In S3 mode, buckets are managed by infrastructure (Terraform) and
+        should already exist. In MinIO mode, create if missing.
 
         Args:
             bucket: Bucket name.
@@ -74,6 +88,11 @@ class MinioStorage:
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "")
             if error_code in ("404", "NoSuchBucket"):
+                if self._s3_mode:
+                    raise RuntimeError(
+                        f"S3 bucket '{bucket}' not found. Buckets are managed by "
+                        f"Terraform — check MINIO_BUCKET_IMAGERY / MINIO_BUCKET_CHANGES env vars."
+                    ) from e
                 self.client.create_bucket(Bucket=bucket)
                 logger.info("Created bucket", bucket=bucket)
             else:

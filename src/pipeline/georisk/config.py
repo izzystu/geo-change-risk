@@ -22,7 +22,7 @@ class StacConfig:
 class MinioConfig:
     """MinIO storage configuration."""
 
-    endpoint: str = "localhost:9000"
+    endpoint: str = ""
     access_key: str = ""
     secret_key: str = ""
     secure: bool = False
@@ -36,6 +36,7 @@ class ApiConfig:
 
     base_url: str = "http://localhost:5074"
     timeout: float = 30.0
+    api_key: str = ""
 
 
 @dataclass
@@ -159,6 +160,8 @@ class Config:
         # API
         if url := os.getenv("GEORISK_API_URL"):
             self.api.base_url = url
+        if api_key := os.getenv("GEORISK_API_KEY"):
+            self.api.api_key = api_key
 
         # MinIO
         if endpoint := os.getenv("MINIO_ENDPOINT"):

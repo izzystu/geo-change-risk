@@ -1,10 +1,8 @@
 using GeoChangeRisk.Api.Controllers;
-using GeoChangeRisk.Api.Jobs;
 using GeoChangeRisk.Api.Services;
 using GeoChangeRisk.Contracts;
 using GeoChangeRisk.Data;
 using GeoChangeRisk.Data.Models;
-using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -18,7 +16,7 @@ public class AreasOfInterestScheduleTests : IDisposable
 {
     private readonly GeoChangeDbContext _context;
     private readonly AreasOfInterestController _controller;
-    private readonly Mock<IRecurringJobManager> _recurringJobsMock;
+    private readonly Mock<ISchedulerService> _schedulerMock;
     private readonly GeometryFactory _factory;
 
     public AreasOfInterestScheduleTests()
@@ -28,14 +26,14 @@ public class AreasOfInterestScheduleTests : IDisposable
             .Options;
 
         _context = new TestDbContext(options);
-        _recurringJobsMock = new Mock<IRecurringJobManager>();
+        _schedulerMock = new Mock<ISchedulerService>();
         _factory = new GeometryFactory(new PrecisionModel(), 4326);
 
         _controller = new AreasOfInterestController(
             _context,
             Mock.Of<ILogger<AreasOfInterestController>>(),
             Mock.Of<IGeometryParsingService>(),
-            _recurringJobsMock.Object);
+            _schedulerMock.Object);
     }
 
     private AreaOfInterest CreateTestAoi(string aoiId = "test-aoi", string name = "Test AOI")
@@ -54,7 +52,7 @@ public class AreasOfInterestScheduleTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateSchedule_ValidCron_CreatesHangfireJob()
+    public async Task UpdateSchedule_ValidCron_CreatesSchedule()
     {
         // Arrange
         var aoi = CreateTestAoi();
@@ -76,12 +74,8 @@ public class AreasOfInterestScheduleTests : IDisposable
         Assert.Equal("0 6 * * 1", dto.ProcessingSchedule);
         Assert.True(dto.ProcessingEnabled);
 
-        _recurringJobsMock.Verify(
-            m => m.AddOrUpdate(
-                "scheduled-check-test-aoi",
-                It.IsAny<Hangfire.Common.Job>(),
-                "0 6 * * 1",
-                It.IsAny<RecurringJobOptions>()),
+        _schedulerMock.Verify(
+            m => m.AddOrUpdateScheduleAsync("test-aoi", "0 6 * * 1", It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -93,13 +87,9 @@ public class AreasOfInterestScheduleTests : IDisposable
         _context.AreasOfInterest.Add(aoi);
         await _context.SaveChangesAsync();
 
-        _recurringJobsMock
-            .Setup(m => m.AddOrUpdate(
-                It.IsAny<string>(),
-                It.IsAny<Hangfire.Common.Job>(),
-                It.IsAny<string>(),
-                It.IsAny<RecurringJobOptions>()))
-            .Throws(new ArgumentException("Invalid cron", new Exception("bad cron expression")));
+        _schedulerMock
+            .Setup(m => m.AddOrUpdateScheduleAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ArgumentException("Invalid cron", new Exception("bad cron expression")));
 
         var request = new UpdateAoiScheduleRequest
         {
@@ -115,7 +105,7 @@ public class AreasOfInterestScheduleTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateSchedule_DisableProcessing_RemovesHangfireJob()
+    public async Task UpdateSchedule_DisableProcessing_RemovesSchedule()
     {
         // Arrange
         var aoi = CreateTestAoi();
@@ -137,8 +127,8 @@ public class AreasOfInterestScheduleTests : IDisposable
         var dto = Assert.IsType<AreaOfInterestDto>(okResult.Value);
         Assert.False(dto.ProcessingEnabled);
 
-        _recurringJobsMock.Verify(
-            m => m.RemoveIfExists("scheduled-check-test-aoi"),
+        _schedulerMock.Verify(
+            m => m.RemoveScheduleAsync("test-aoi", It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -235,7 +225,7 @@ public class AreasOfInterestScheduleTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateSchedule_EmptySchedule_ClearsToNullAndRemovesJob()
+    public async Task UpdateSchedule_EmptySchedule_ClearsToNullAndRemovesSchedule()
     {
         // Arrange
         var aoi = CreateTestAoi();
@@ -257,9 +247,9 @@ public class AreasOfInterestScheduleTests : IDisposable
         var dto = Assert.IsType<AreaOfInterestDto>(okResult.Value);
         Assert.Null(dto.ProcessingSchedule);
 
-        // Should call RemoveIfExists because schedule is now null (even though enabled=true)
-        _recurringJobsMock.Verify(
-            m => m.RemoveIfExists("scheduled-check-test-aoi"),
+        // Should call RemoveScheduleAsync because schedule is now null (even though enabled=true)
+        _schedulerMock.Verify(
+            m => m.RemoveScheduleAsync("test-aoi", It.IsAny<CancellationToken>()),
             Times.Once);
     }
 

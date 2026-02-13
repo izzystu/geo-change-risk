@@ -1,15 +1,16 @@
--- Geo Change Risk Platform - ArcGIS Pro Compatibility Views
+-- Geo Change Risk Platform - ArcGIS Pro Compatibility Views (OPTIONAL)
 -- Creates read-only views with lowercase column names, explicitly typed geometry
 -- columns named "shape", and no jsonb fields — required for ArcGIS Pro's PostGIS driver.
 --
 -- These views are safe to run at any time (CREATE OR REPLACE) and do not modify
 -- the application schema. They query the live tables so data is always current.
 --
--- NOTE: This script runs on first container creation only (Docker entrypoint).
--- If you add it after initial setup, run it manually:
---   docker exec georisk-postgres psql -U gis -d georisk -f /docker-entrypoint-initdb.d/02-arcgis-views.sql
--- Or, if the tables don't exist yet (fresh DB), the views will fail harmlessly
--- and you can re-run the script after EF Core migrations have created the tables.
+-- PREREQUISITES: EF Core migrations must have run first (the application tables must exist).
+--
+-- To install, run manually after the database is set up:
+--   docker exec georisk-postgres psql -U gis -d georisk -f /opt/georisk/arcgis-views.sql
+--
+-- See docs/arcgis-pro-setup.md for ArcGIS Pro connection instructions.
 
 -- Areas of Interest (polygon boundaries)
 CREATE OR REPLACE VIEW public.v_areas_of_interest AS
