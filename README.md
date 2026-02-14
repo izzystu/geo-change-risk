@@ -2,7 +2,7 @@
 
 Geospatial risk intelligence for critical infrastructure. Detects land-surface changes from satellite imagery, scores threat severity using terrain and proximity analysis, and delivers actionable risk events to asset operators.
 
-*End-to-end geospatial engineering — satellite data pipelines, spatial analysis, ML classification, and full-stack cloud architecture.*
+*End-to-end geospatial engineering — satellite data pipelines, spatial analysis, pretrained and custom-trained ML models, and full-stack cloud architecture.*
 
 ## Screenshots
 
@@ -39,6 +39,27 @@ Geospatial risk intelligence for critical infrastructure. Detects land-surface c
 
 *Scheduling panel with configurable frequency, cloud cover threshold, and job history showing automated processing runs.*
 
+## What This Demonstrates
+
+This project combines three engineering disciplines into a single integrated platform:
+
+### Geospatial Engineering
+- Sentinel-2 satellite imagery acquisition via STAC API (Microsoft Planetary Computer)
+- NDVI change detection with rasterio/numpy raster math and vectorization
+- PostGIS spatial indexing and proximity queries (NetTopologySuite)
+- USGS 3DEP terrain analysis — slope, aspect, and directional risk modeling
+
+### Cloud Architecture & Infrastructure
+- Multi-cloud portable design via three DI-swappable provider interfaces
+- Terraform IaC deploying to AWS (App Runner, ECS Fargate Spot, RDS, S3, CloudFront, EventBridge)
+- Scale-to-zero API (~$2/month idle) with on-demand pipeline compute
+- Automated per-AOI scheduling with continuous temporal coverage chaining
+
+### Machine Learning
+- EuroSAT land cover classification (pretrained via TorchGeo) for risk context weighting
+- Custom U-Net landslide segmentation trained on Landslide4Sense (14-channel input)
+- Recall-optimized for safety-critical detection (0.78 recall vs 0.66 competition baseline)
+- Graceful degradation — ML enhances but never blocks the core pipeline
 
 ## Why This Exists
 
@@ -58,12 +79,12 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 ## Key Features
 
 - **Satellite Change Detection** — Automated NDVI change detection from Sentinel-2 imagery via Microsoft Planetary Computer STAC API
-- **Automated Scheduling** — Per-AOI cron-based scheduling with configurable cloud cover thresholds. Automatically checks for new imagery and triggers processing runs when acceptable data is available
 - **Terrain-Aware Scoring** — USGS 3DEP elevation data powers slope, aspect, and directional risk analysis (upslope threats score higher)
 - **Asset Proximity Analysis** — PostGIS spatial queries calculate distances between detected changes and infrastructure assets
 - **ML Land Cover Context** — EuroSAT pretrained model (via TorchGeo) classifies land cover to weight risk appropriately (forest fire vs. crop harvest)
 - **ML Landslide Detection** — Custom U-Net segmentation model trained on Landslide4Sense dataset identifies debris flows in steep terrain from 14-channel satellite + elevation input
 - **Explainable Risk Scores** — Every score includes a full breakdown of contributing factors and their individual weights
+- **Automated Scheduling** — Per-AOI cron-based scheduling with configurable cloud cover thresholds and continuous temporal coverage. See [docs/automated-scheduling.md](docs/automated-scheduling.md)
 - **Interactive Map UI** — ArcGIS Maps SDK with before/after imagery comparison, layer controls, and risk event exploration
 - **Dismiss/Act Workflow** — Risk events support operational triage with dismiss and action tracking
 
@@ -83,6 +104,8 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 
 ## Architecture
 
+### Local Development
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                              Web UI (SvelteKit)                         │
@@ -92,9 +115,10 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           REST API (.NET 8)                             │
-│              Areas of Interest │ Assets │ Processing │ Risk Events      │
+│       Areas of Interest │ Assets │ Processing │ Risk Events             │
+│                      Hangfire Scheduler                                 │
 └───────────┬─────────────────────────────────────────────┬───────────────┘
-            │                                             │
+            │                                             │ triggers
             ▼                                             ▼
 ┌───────────────────────┐                   ┌─────────────────────────────┐
 │  PostgreSQL/PostGIS   │                   │    Python Raster Pipeline   │
@@ -116,6 +140,44 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
                                             └─────────────────────────────┘
 ```
 
+### AWS Deployment
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        CloudFront CDN                                   │
+│                     SvelteKit Static Assets                             │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      App Runner (.NET 8 API)                            │
+│              Scale-to-zero │ VPC Connector │ IAM Roles                  │
+└───────────┬─────────────────────────────────────────────┬───────────────┘
+            │                                             │
+            ▼                                             ▼
+┌───────────────────────┐                   ┌─────────────────────────────┐
+│  RDS PostgreSQL       │                   │    ECS Fargate Spot         │
+│  + PostGIS            │                   │    Python Raster Pipeline   │
+│  - AOIs & Assets      │◄──────────────────│    - STAC Search            │
+│  - Processing Runs    │                   │    - NDVI Change Detection  │
+│  - Change Polygons    │                   │    - Terrain Analysis       │
+│  - Risk Events        │                   │    - ML Land Cover          │
+└───────────────────────┘                   │    - ML Landslide Detection │
+                                            │    - Risk Scoring           │
+                                            └──────────────┬──────────────┘
+                                              ▲            │
+┌───────────────────────┐        triggers     │            ▼
+│  EventBridge          │─────────────────────┘ ┌─────────────────────────┐
+│  Scheduler            │                       │     S3 Buckets          │
+│  - Per-AOI cron       │                       │     - Satellite Imagery │
+│  - Imagery checks     │                       │     - NDVI Rasters      │
+└───────────────────────┘                       │     - DEM Tiles         │
+                                                │     - ML Models         │
+                                                └─────────────────────────┘
+```
+
+Three DI-swappable provider interfaces (`IObjectStorageService`, `ISchedulerService`, `IPipelineExecutor`) enable the same application code to run against either environment — local services swap for AWS managed services via configuration.
+
 ## Risk Scoring Model
 
 The platform uses a multi-factor risk scoring model (0-100 scale):
@@ -132,6 +194,32 @@ The platform uses a multi-factor risk scoring model (0-100 scale):
 | **Asset Criticality** | multiplier | Critical assets (hospitals, substations) get 2x weight |
 
 **Risk Levels:** Critical (75-100), High (50-74), Medium (25-49), Low (0-24)
+
+## Machine Learning
+
+The platform uses two ML models that integrate into the pipeline as optional dependencies — the pipeline degrades gracefully without them.
+
+### Land Cover Classification (EuroSAT)
+
+Pretrained EuroSAT model (via TorchGeo) classifies the land cover around each change polygon. This provides context for risk scoring: a vegetation loss event in forest land (1.0x) is treated very differently from one on agricultural land (0.3x) where seasonal clearing is routine.
+
+### Landslide Detection (Custom U-Net)
+
+A U-Net segmentation model trained in-house on the [Landslide4Sense](https://github.com/iarai/Landslide4Sense-2022) dataset to detect landslide debris in satellite imagery. Post-fire terrain loses the root systems that stabilize slopes, making debris flow a critical correlated hazard for downstream infrastructure.
+
+**Training pipeline** (`machine-learning/landslide/`):
+- **Architecture:** U-Net with ResNet34 encoder (via segmentation-models-pytorch), pretrained on ImageNet and adapted to 14-channel input
+- **Dataset:** Landslide4Sense — 3,799 training patches of 128x128 pixels, each with 12 Sentinel-2 spectral bands + slope + DEM elevation, with binary landslide masks
+- **Training approach:** Combined Dice + BCE loss with class imbalance handling (pos_weight capping), AdamW optimizer, cosine LR scheduling, mixed-precision training, early stopping on validation IoU
+- **Results:** IoU 0.47, F1 0.56, Recall 0.78 — achieves significantly higher recall than the [official competition baseline](https://github.com/iarai/Landslide4Sense-2022) (0.78 vs. 0.66) at comparable F1, prioritizing detection completeness over precision for a safety-critical application. Full training logs and hyperparameter search across 8 runs documented in [`TRAINING.md`](machine-learning/landslide/TRAINING.md)
+
+**Inference integration** (`src/pipeline/georisk/raster/landslide.py`):
+- Assembles 14-channel input patches from data the pipeline already produces (Sentinel-2 bands + USGS 3DEP terrain)
+- Only evaluates polygons on steep terrain (slope > 10°) to focus on plausible landslide locations
+- Dual classification criteria (mean probability + pixel fraction thresholds) to control false positive rate
+- Classified landslide polygons receive a 1.8x-2.5x risk score multiplier, stacking with directional slope factors
+
+**Model storage:** The trained model (~94 MB) is stored in the `ml-models` S3/MinIO bucket (not in git). The pipeline auto-downloads it to `~/.cache/georisk/models/` on first use. Upload with `georisk model upload <path>`, or train your own following [`TRAINING.md`](machine-learning/landslide/TRAINING.md).
 
 ## Architecture Decisions
 
@@ -168,145 +256,24 @@ geo-change-risk/
 
 ## Getting Started
 
-### Prerequisites
+Prerequisites: Docker Desktop, .NET 8 SDK, Python 3.11+, Node.js 18+
 
-- Docker Desktop
-- .NET 8 SDK
-- Python 3.11+
-- Node.js 18+
-
-### Quick Start
-
-**Windows (PowerShell):**
 ```powershell
+# 1. Start infrastructure (generates credentials, starts PostgreSQL + MinIO)
 .\deployments\local\setup.ps1
-```
 
-**Linux/Mac:**
-```bash
-chmod +x deployments/local/setup.sh
-./deployments/local/setup.sh
-```
-
-This will:
-1. Generate random credentials for local development
-2. Start PostgreSQL/PostGIS and MinIO containers
-3. Initialize MinIO buckets
-4. Display your credentials at the end
-
-Credentials are stored in `infra/local/.env` (gitignored).
-
-### Initialize Sample Data (Paradise, CA)
-
-```bash
-cd areas-of-interest/paradise
-pip install -r requirements.txt
-python download-assets.py
-python initialize.py
-```
-
-### Start the Application
-
-```bash
-# Terminal 1: Start API
+# 2. Start API
 cd src/api/GeoChangeRisk.Api
 dotnet run
-# To run w/ log file: dotnet run 2>&1 | Tee-Object -FilePath "api-output.txt"
 
-# Terminal 2: Start Web UI
+# 3. Start Web UI (in another terminal)
 cd src/web-ui
-npm install
-npm run dev
+npm install && npm run dev
 ```
 
-Open http://localhost:5173 to view the application.
+Open http://localhost:5173. See [docs/getting-started.md](docs/getting-started.md) for full instructions including sample data initialization and running change detection.
 
-### Run Change Detection
-
-```bash
-cd src/pipeline
-pip install -e ".[ml]"   # includes ML land cover classification
-# Or: pip install -e .   # base pipeline without ML
-
-# Search for available imagery
-python -m georisk search --aoi-id paradise-ca --date-range 2018-01-01/2018-12-31
-
-# Run change detection (before/after Camp Fire)
-python -m georisk process --aoi-id paradise-ca --before 2018-10-01 --after 2018-12-01
-```
-
-## Sample Area of Interest: Paradise, CA
-
-The included Paradise AOI covers the 2018 Camp Fire area with ~3,900 infrastructure assets:
-
-- **Buildings:** 1,420 structures from OpenStreetMap
-- **Roads:** 2,354 road segments
-- **Power Infrastructure:** 117 power features + 6 CEC transmission lines
-- **Emergency Services:** 6 fire stations, 11 schools
-
-## Current Status
-
-| Component | Status | Description |
-|-----------|--------|-------------|
-| Infrastructure | Complete | Docker Compose, PostgreSQL/PostGIS, MinIO |
-| REST API | Complete | Full CRUD for AOIs, assets, processing runs, risk events |
-| Web UI | Complete | Interactive map, before/after imagery, risk event triage |
-| Raster Pipeline | Complete | STAC search, NDVI change detection, vectorization |
-| Terrain Analysis | Complete | USGS 3DEP slope/aspect/elevation, directional scoring |
-| Risk Scoring | Complete | Multi-factor additive scoring with land cover and criticality multipliers |
-| ML Land Cover | Complete | EuroSAT classification via TorchGeo (optional `[ml]` dependency) |
-| ML Landslide Detection | Complete | Custom U-Net trained on Landslide4Sense, integrated into pipeline and risk scoring |
-| Automated Scheduling | Complete | Per-AOI cron scheduling, cloud cover thresholds, `georisk check` CLI, Hangfire recurring jobs, Web UI scheduling panel |
-| Testing | Complete | xUnit (.NET API controllers, services, models) + pytest (Python pipeline raster processing, risk scoring) |
-| AWS Deployment | Complete | App Runner (API), ECS Fargate Spot (pipeline), RDS PostgreSQL, S3, CloudFront, EventBridge Scheduler, Terraform IaC |
-
-## Automated Scheduling
-
-The platform supports fully automated monitoring of each AOI for new satellite imagery. When configured, a Hangfire recurring job checks for new Sentinel-2 scenes on a cron schedule and automatically triggers processing runs when acceptable data is available.
-
-### How It Works
-
-1. **Schedule configuration** — Each AOI can be assigned a cron schedule (e.g., daily, weekly) and a maximum cloud cover threshold via the Scheduling panel in the Web UI or the REST API
-2. **Imagery check** — On each scheduled tick, the `georisk check` CLI command queries the STAC API for new Sentinel-2 scenes since the last completed run, filtered by the cloud cover threshold
-3. **Automatic run creation** — If a new scene is found that hasn't been processed yet, a processing run is created with:
-   - **After date** = the date of the new scene
-   - **Before date** = the after date from the last completed run (creating a continuous monitoring chain), or `defaultLookbackDays` back from the new scene if no previous run exists
-4. **Guard logic** — If a processing run is already in progress for the AOI, the check skips to avoid duplicate runs
-5. **Persistence** — Schedules are stored on the AOI record in the database and re-registered with Hangfire on API startup
-
-### CLI Usage
-
-```bash
-# Check for new imagery (used by scheduler, also available manually)
-python -m georisk check --aoi-id paradise-ca --json
-
-# With custom cloud cover threshold
-python -m georisk check --aoi-id paradise-ca --max-cloud 15 --json
-```
-
-### API Usage
-
-```bash
-# Configure a daily schedule at 6 AM UTC with 25% max cloud cover
-curl -X PUT http://localhost:5074/api/areas-of-interest/paradise-ca/schedule \
-  -H "Content-Type: application/json" \
-  -d '{"processingSchedule": "0 6 * * *", "processingEnabled": true, "maxCloudCover": 25}'
-```
-
-### Common Cron Schedules
-
-| Schedule | Cron Expression |
-|----------|----------------|
-| Every 6 hours | `0 */6 * * *` |
-| Daily at 6 AM UTC | `0 6 * * *` |
-| Twice weekly (Mon/Thu) | `0 6 * * 1,4` |
-| Weekly (Monday) | `0 6 * * 1` |
-
-## ArcGIS Pro Integration (Optional)
-
-Optional read-only PostGIS views (`v_areas_of_interest`, `v_asset_*`, `v_change_polygons`, `v_risk_events`) can be installed for direct use in ArcGIS Pro. The views are not created automatically — run `infra/local/optional/arcgis-views.sql` manually after EF Core migrations. See [docs/arcgis-pro-setup.md](docs/arcgis-pro-setup.md) for setup instructions.
-
-### Cloud Deployment
+## Cloud Deployment
 
 The platform deploys to AWS with a single script. See [docs/aws-deployment.md](docs/aws-deployment.md) for the full deployment guide.
 
@@ -318,31 +285,9 @@ Architecture: App Runner (scale-to-zero API, ~$2/month idle) + ECS Fargate Spot 
 
 The architecture is multi-cloud portable via three DI-swappable interfaces (`IObjectStorageService`, `ISchedulerService`, `IPipelineExecutor`). See [docs/multi-cloud-strategy.md](docs/multi-cloud-strategy.md) for Azure and GCP deployment paths.
 
-## Machine Learning
+## ArcGIS Pro Integration (Optional)
 
-The platform uses two ML models that integrate into the pipeline as optional dependencies — the pipeline degrades gracefully without them.
-
-### Land Cover Classification (EuroSAT)
-
-Pretrained EuroSAT model (via TorchGeo) classifies the land cover around each change polygon. This provides context for risk scoring: a vegetation loss event in forest land (1.0x) is treated very differently from one on agricultural land (0.3x) where seasonal clearing is routine.
-
-### Landslide Detection (Custom U-Net)
-
-A U-Net segmentation model trained in-house on the [Landslide4Sense](https://github.com/iarai/Landslide4Sense-2022) dataset to detect landslide debris in satellite imagery. Post-fire terrain loses the root systems that stabilize slopes, making debris flow a critical correlated hazard for downstream infrastructure.
-
-**Training pipeline** (`machine-learning/landslide/`):
-- **Architecture:** U-Net with ResNet34 encoder (via segmentation-models-pytorch), pretrained on ImageNet and adapted to 14-channel input
-- **Dataset:** Landslide4Sense — 3,799 training patches of 128x128 pixels, each with 12 Sentinel-2 spectral bands + slope + DEM elevation, with binary landslide masks
-- **Training approach:** Combined Dice + BCE loss with class imbalance handling (pos_weight capping), AdamW optimizer, cosine LR scheduling, mixed-precision training, early stopping on validation IoU
-- **Results:** IoU 0.47, F1 0.56, Recall 0.78 — achieves significantly higher recall than the [official competition baseline](https://github.com/iarai/Landslide4Sense-2022) (0.78 vs. 0.66) at comparable F1, prioritizing detection completeness over precision for a safety-critical application. Full training logs and hyperparameter search across 8 runs documented in [`TRAINING.md`](machine-learning/landslide/TRAINING.md)
-
-**Inference integration** (`src/pipeline/georisk/raster/landslide.py`):
-- Assembles 14-channel input patches from data the pipeline already produces (Sentinel-2 bands + USGS 3DEP terrain)
-- Only evaluates polygons on steep terrain (slope > 10°) to focus on plausible landslide locations
-- Dual classification criteria (mean probability + pixel fraction thresholds) to control false positive rate
-- Classified landslide polygons receive a 1.8x-2.5x risk score multiplier, stacking with directional slope factors
-
-**Model storage:** The trained model (~94 MB) is stored in the `ml-models` S3/MinIO bucket (not in git). The pipeline auto-downloads it to `~/.cache/georisk/models/` on first use. Upload with `georisk model upload <path>`, or train your own following [`TRAINING.md`](machine-learning/landslide/TRAINING.md).
+Optional read-only PostGIS views (`v_areas_of_interest`, `v_asset_*`, `v_change_polygons`, `v_risk_events`) can be installed for direct use in ArcGIS Pro. The views are not created automatically — run `infra/local/optional/arcgis-views.sql` manually after EF Core migrations. See [docs/arcgis-pro-setup.md](docs/arcgis-pro-setup.md) for setup instructions.
 
 ## Contact
 
