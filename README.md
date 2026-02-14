@@ -108,35 +108,35 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          Web UI (SvelteKit)                              │
+│                          Web UI (SvelteKit)                             │
 │                        ArcGIS Maps SDK                                  │
 └────────────────────────────────────┬────────────────────────────────────┘
                                      │
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                            API (.NET 8)                                  │
-│       Areas of Interest │ Assets │ Processing │ Risk Events              │
-│                      Hangfire Scheduler                                  │
+│                            API (.NET 8)                                 │
+│       Areas of Interest │ Assets │ Processing │ Risk Events             │
+│                      Hangfire Scheduler                                 │
 └───────────┬─────────────────────────────────────────────┬───────────────┘
             │                                             │ triggers
             ▼                                             ▼
 ┌───────────────────────┐                   ┌─────────────────────────────┐
-│  PostgreSQL + PostGIS │                   │    Raster Pipeline (Python)  │
-│  - AOIs & Assets      │                   │    - STAC Search             │
-│  - Processing Runs    │◄──────────────────│    - NDVI Change Detection   │
-│  - Change Polygons    │                   │    - Terrain Analysis        │
-│  - Risk Events        │                   │    - ML Land Cover           │
-│                       │                   │    - ML Landslide Detection  │
-└───────────────────────┘                   │    - Risk Scoring            │
+│  PostgreSQL + PostGIS │                   │    Raster Pipeline (Python) │
+│  - AOIs & Assets      │                   │    - STAC Search            │
+│  - Processing Runs    │◄──────────────────│    - NDVI Change Detection  │
+│  - Change Polygons    │                   │    - Terrain Analysis       │
+│  - Risk Events        │                   │    - ML Land Cover          │
+│                       │                   │    - ML Landslide Detection │
+└───────────────────────┘                   │    - Risk Scoring           │
                                             └──────────────┬──────────────┘
                                                            │
                                                            ▼
                                             ┌─────────────────────────────┐
-                                            │    Object Storage (MinIO)    │
-                                            │    - Satellite Imagery       │
-                                            │    - NDVI Rasters            │
-                                            │    - DEM Tiles               │
-                                            │    - ML Models               │
+                                            │    Object Storage (MinIO)   │
+                                            │    - Satellite Imagery      │
+                                            │    - NDVI Rasters           │
+                                            │    - DEM Tiles              │
+                                            │    - ML Models              │
                                             └─────────────────────────────┘
 ```
 
@@ -144,38 +144,49 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                   Web UI (SvelteKit + CloudFront)                        │
+│                   Web UI (SvelteKit + <<CloudFront>>)                   │
 │                        ArcGIS Maps SDK                                  │
 └────────────────────────────────────┬────────────────────────────────────┘
                                      │
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                      API (.NET 8 + App Runner)                           │
-│       Areas of Interest │ Assets │ Processing │ Risk Events              │
-│                    EventBridge Scheduler                                 │
+│                      API (.NET 8 + <<App Runner>>)                      │
+│       Areas of Interest │ Assets │ Processing │ Risk Events             │
+│                    <<EventBridge>> Scheduler                            │
 └───────────┬─────────────────────────────────────────────┬───────────────┘
             │                                             │ triggers
             ▼                                             ▼
 ┌───────────────────────┐                   ┌─────────────────────────────┐
-│  PostgreSQL + PostGIS │                   │    Raster Pipeline (Python)  │
-│  (RDS)                │                   │    (ECS Fargate Spot)        │
-│  - AOIs & Assets      │                   │    - STAC Search             │
-│  - Processing Runs    │◄──────────────────│    - NDVI Change Detection   │
-│  - Change Polygons    │                   │    - Terrain Analysis        │
-│  - Risk Events        │                   │    - ML Land Cover           │
-│                       │                   │    - ML Landslide Detection  │
-└───────────────────────┘                   │    - Risk Scoring            │
+│  PostgreSQL + PostGIS │                   │    Raster Pipeline (Python) │
+│  <<RDS>>              │                   │    <<ECS Fargate Spot>>     │
+│  - AOIs & Assets      │                   │    - STAC Search            │
+│  - Processing Runs    │◄──────────────────│    - NDVI Change Detection  │
+│  - Change Polygons    │                   │    - Terrain Analysis       │
+│  - Risk Events        │                   │    - ML Land Cover          │
+│                       │                   │    - ML Landslide Detection │
+└───────────────────────┘                   │    - Risk Scoring           │
                                             └──────────────┬──────────────┘
                                                            │
                                                            ▼
                                             ┌─────────────────────────────┐
-                                            │      Object Storage (S3)     │
-                                            │      - Satellite Imagery     │
-                                            │      - NDVI Rasters          │
-                                            │      - DEM Tiles             │
-                                            │      - ML Models             │
+                                            │    Object Storage (<<S3>>)  │
+                                            │      - Satellite Imagery    │
+                                            │      - NDVI Rasters         │
+                                            │      - DEM Tiles            │
+                                            │      - ML Models            │
                                             └─────────────────────────────┘
 ```
+
+The `<<marked>>` items are the only differences between deployments — AWS managed services replace local equivalents:
+
+| Component | Local | AWS |
+|-----------|-------|-----|
+| **Web Hosting** | SvelteKit dev server | CloudFront CDN |
+| **API Hosting** | localhost | App Runner (scale-to-zero) |
+| **Scheduler** | Hangfire (in-process) | EventBridge |
+| **Database** | PostgreSQL container | RDS PostgreSQL |
+| **Pipeline Execution** | Local subprocess | ECS Fargate Spot |
+| **Object Storage** | MinIO | S3 |
 
 Three DI-swappable provider interfaces (`IObjectStorageService`, `ISchedulerService`, `IPipelineExecutor`) enable the same application code to run against either environment — local services swap for AWS managed services via configuration.
 
