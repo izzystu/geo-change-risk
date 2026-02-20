@@ -150,6 +150,52 @@ export interface RiskEventStats {
 	byRiskLevel: Record<string, number>;
 }
 
+// Natural Language Query types
+export interface NaturalLanguageQueryRequest {
+	query: string;
+	aoiId?: string;
+}
+
+export interface NaturalLanguageQueryResponse {
+	interpretation: string;
+	queryPlan?: QueryPlan;
+	totalCount: number;
+	results: unknown[];
+	geoJson?: GeoJSON.FeatureCollection;
+	success: boolean;
+	errorMessage?: string;
+}
+
+export interface QueryPlan {
+	targetEntity: string;
+	filters: QueryFilter[];
+	spatialFilter?: SpatialFilter;
+	dateRange?: DateRangeFilter;
+	aoiId?: string;
+	orderBy?: string;
+	orderDescending: boolean;
+	limit?: number;
+}
+
+export interface QueryFilter {
+	property: string;
+	operator: string;
+	value: string;
+}
+
+export interface SpatialFilter {
+	operation: string;
+	referenceEntityType: string;
+	referenceFilters: QueryFilter[];
+	distanceMeters?: number;
+}
+
+export interface DateRangeFilter {
+	property: string;
+	from?: string;
+	to?: string;
+}
+
 export const RiskLevelColors: Record<string, string> = {
 	'Low': '#22c55e',      // green
 	'Medium': '#f59e0b',   // amber
@@ -406,5 +452,17 @@ export const api = {
 	// Get change polygons GeoJSON for a specific run
 	async getRunChangesGeoJson(runId: string): Promise<AssetGeoJSON> {
 		return fetchJson(`${API_BASE}/api/processing/runs/${runId}/changes/geojson`);
+	},
+
+	// Natural Language Query
+	async queryNaturalLanguage(request: NaturalLanguageQueryRequest): Promise<NaturalLanguageQueryResponse> {
+		return fetchJson(`${API_BASE}/api/query`, {
+			method: 'POST',
+			body: JSON.stringify(request)
+		});
+	},
+
+	async getQueryHealth(): Promise<{ available: boolean }> {
+		return fetchJson(`${API_BASE}/api/query/health`);
 	}
 };

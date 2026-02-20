@@ -1,3 +1,4 @@
+using Amazon.BedrockRuntime;
 using Amazon.S3;
 using Amazon.Scheduler;
 using GeoChangeRisk.Api.Jobs;
@@ -167,6 +168,23 @@ builder.Services.Configure<NotificationOptions>(
     builder.Configuration.GetSection(NotificationOptions.SectionName));
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+
+// Configure LLM service (Ollama or Bedrock)
+builder.Services.Configure<LlmOptions>(
+    builder.Configuration.GetSection(LlmOptions.SectionName));
+
+var llmProvider = builder.Configuration["Llm:Provider"] ?? "ollama";
+
+if (llmProvider == "bedrock")
+{
+    builder.Services.AddSingleton<AmazonBedrockRuntimeClient>();
+    builder.Services.AddScoped<ILlmService, BedrockLlmService>();
+}
+else
+{
+    builder.Services.AddScoped<ILlmService, OllamaLlmService>();
+}
+builder.Services.AddScoped<QueryExecutorService>();
 
 var app = builder.Build();
 

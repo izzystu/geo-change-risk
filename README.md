@@ -101,6 +101,7 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 | **Cloud Deployment** | Terraform + AWS (App Runner, ECS Fargate, RDS, S3, CloudFront) | Production cloud infrastructure |
 | **ML Classification** | PyTorch + TorchGeo | Land cover classification (EuroSAT) |
 | **ML Segmentation** | PyTorch + segmentation-models-pytorch | Landslide detection (custom-trained U-Net) |
+| **LLM Integration** | Ollama (local) / AWS Bedrock (cloud) | Natural language spatial queries |
 
 ## Architecture
 
@@ -115,29 +116,29 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                            API (.NET 8)                                 │
-│       Areas of Interest │ Assets │ Processing │ Risk Events             │
+│       Areas of Interest │ Assets │ Processing │ Risk Events │ Query     │
 │                      Hangfire Scheduler                                 │
-└───────────┬─────────────────────────────────────────────┬───────────────┘
-            │                                             │ triggers
-            ▼                                             ▼
-┌───────────────────────┐                   ┌─────────────────────────────┐
-│  PostgreSQL + PostGIS │                   │    Raster Pipeline (Python) │
-│  - AOIs & Assets      │                   │    - STAC Search            │
-│  - Processing Runs    │◄──────────────────│    - NDVI Change Detection  │
-│  - Change Polygons    │                   │    - Terrain Analysis       │
-│  - Risk Events        │                   │    - ML Land Cover          │
-│                       │                   │    - ML Landslide Detection │
-└───────────────────────┘                   │    - Risk Scoring           │
-                                            └──────────────┬──────────────┘
-                                                           │
-                                                           ▼
-                                            ┌─────────────────────────────┐
-                                            │    Object Storage (MinIO)   │
-                                            │    - Satellite Imagery      │
-                                            │    - NDVI Rasters           │
-                                            │    - DEM Tiles              │
-                                            │    - ML Models              │
-                                            └─────────────────────────────┘
+└───────────┬───────────────────────────────┬─────────────┬───────────────┘
+            │                               │ triggers    │ NL queries
+            ▼                               ▼             ▼
+┌───────────────────────┐    ┌──────────────────────────┐ ┌───────────────┐
+│  PostgreSQL + PostGIS │    │  Raster Pipeline (Python) │ │    Ollama     │
+│  - AOIs & Assets      │    │  - STAC Search            │ │  (Local LLM)  │
+│  - Processing Runs    │◄───│  - NDVI Change Detection  │ └───────────────┘
+│  - Change Polygons    │    │  - Terrain Analysis       │
+│  - Risk Events        │    │  - ML Land Cover          │
+│                       │    │  - ML Landslide Detection │
+└───────────────────────┘    │  - Risk Scoring           │
+                             └────────────┬─────────────┘
+                                          │
+                                          ▼
+                             ┌──────────────────────────┐
+                             │  Object Storage (MinIO)   │
+                             │  - Satellite Imagery      │
+                             │  - NDVI Rasters           │
+                             │  - DEM Tiles              │
+                             │  - ML Models              │
+                             └──────────────────────────┘
 ```
 
 ### AWS Deployment
@@ -151,30 +152,30 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                      API (.NET 8 + <<App Runner>>)                      │
-│       Areas of Interest │ Assets │ Processing │ Risk Events             │
+│       Areas of Interest │ Assets │ Processing │ Risk Events │ Query     │
 │                    <<EventBridge>> Scheduler                            │
-└───────────┬─────────────────────────────────────────────┬───────────────┘
-            │                                             │ triggers
-            ▼                                             ▼
-┌───────────────────────┐                   ┌─────────────────────────────┐
-│  PostgreSQL + PostGIS │                   │    Raster Pipeline (Python) │
-│  <<RDS>>              │                   │    <<ECS Fargate Spot>>     │
-│  - AOIs & Assets      │                   │    - STAC Search            │
-│  - Processing Runs    │◄──────────────────│    - NDVI Change Detection  │
-│  - Change Polygons    │                   │    - Terrain Analysis       │
-│  - Risk Events        │                   │    - ML Land Cover          │
-│                       │                   │    - ML Landslide Detection │
-└───────────────────────┘                   │    - Risk Scoring           │
-                                            └──────────────┬──────────────┘
-                                                           │
-                                                           ▼
-                                            ┌─────────────────────────────┐
-                                            │    Object Storage (<<S3>>)  │
-                                            │      - Satellite Imagery    │
-                                            │      - NDVI Rasters         │
-                                            │      - DEM Tiles            │
-                                            │      - ML Models            │
-                                            └─────────────────────────────┘
+└───────────┬───────────────────────────────┬─────────────┬───────────────┘
+            │                               │ triggers    │ NL queries
+            ▼                               ▼             ▼
+┌───────────────────────┐    ┌──────────────────────────┐ ┌───────────────┐
+│  PostgreSQL + PostGIS │    │  Raster Pipeline (Python) │ │ <<Bedrock>>   │
+│  <<RDS>>              │    │  <<ECS Fargate Spot>>     │ │  (Cloud LLM)  │
+│  - AOIs & Assets      │◄───│  - STAC Search            │ └───────────────┘
+│  - Processing Runs    │    │  - NDVI Change Detection  │
+│  - Change Polygons    │    │  - Terrain Analysis       │
+│  - Risk Events        │    │  - ML Land Cover          │
+│                       │    │  - ML Landslide Detection │
+└───────────────────────┘    │  - Risk Scoring           │
+                             └────────────┬─────────────┘
+                                          │
+                                          ▼
+                             ┌──────────────────────────┐
+                             │  Object Storage (<<S3>>)  │
+                             │  - Satellite Imagery      │
+                             │  - NDVI Rasters           │
+                             │  - DEM Tiles              │
+                             │  - ML Models              │
+                             └──────────────────────────┘
 ```
 
 The `<<marked>>` items are the only differences between deployments — AWS managed services replace local equivalents:
@@ -187,6 +188,7 @@ The `<<marked>>` items are the only differences between deployments — AWS mana
 | **Database** | PostgreSQL container | RDS PostgreSQL |
 | **Pipeline Execution** | Local subprocess | ECS Fargate Spot |
 | **Object Storage** | MinIO | S3 |
+| **LLM Provider** | Ollama | Bedrock |
 
 Three DI-swappable provider interfaces (`IObjectStorageService`, `ISchedulerService`, `IPipelineExecutor`) enable the same application code to run against either environment — local services swap for AWS managed services via configuration.
 
@@ -232,6 +234,39 @@ A U-Net segmentation model trained in-house on the [Landslide4Sense](https://git
 - Classified landslide polygons receive a 1.8x-2.5x risk score multiplier, stacking with directional slope factors
 
 **Model storage:** The trained model (~94 MB) is stored in the `ml-models` S3/MinIO bucket (not in git). The pipeline auto-downloads it to `~/.cache/georisk/models/` on first use. Upload with `georisk model upload <path>`, or train your own following [`TRAINING.md`](machine-learning/landslide/TRAINING.md).
+
+## Natural Language Queries
+
+The platform supports natural language spatial queries powered by LLM integration. Users type queries like *"Show me critical risk events within 500m of hospitals"* and the system translates them into structured, type-safe query plans executed against the database.
+
+### How It Works
+
+1. User types a natural language query in the sidebar QueryPanel
+2. An LLM (Ollama locally, AWS Bedrock in production) parses the intent into a structured `QueryPlan` — **no raw SQL is ever generated**
+3. The `QueryExecutorService` translates the plan into EF Core LINQ with PostGIS spatial functions
+4. Results render in the sidebar and as a dedicated layer on the map
+
+### Example Queries
+
+- *"Show critical risk events near hospitals"*
+- *"Find landslide changes larger than 5000 square meters"*
+- *"Show all high criticality substations"*
+- *"Risk events within 500m of schools with score above 60"*
+- *"Show completed processing runs"*
+
+### Screenshots
+
+![Natural language query input](docs/screenshots/nl-query-input.png)
+
+*Query panel with typed natural language query and LLM status indicator.*
+
+![Query results on map](docs/screenshots/nl-query-results.png)
+
+*Query results displayed on the map with cyan/teal styling, alongside the interpreted query and result list.*
+
+### Azure OpenAI (Future)
+
+Azure OpenAI support follows the same `ILlmService` provider pattern. An `AzureOpenAiLlmService` implementation would use the `Azure.AI.OpenAI` NuGet package with Managed Identity authentication. Configuration: `Llm__Provider=azureopenai` with endpoint and deployment name settings. To be implemented alongside Azure deployment support.
 
 ## Architecture Decisions
 

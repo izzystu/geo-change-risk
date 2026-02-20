@@ -288,6 +288,7 @@ function Wait-ForServices {
     $elapsed = 0
     $postgresReady = $false
     $minioReady = $false
+    $ollamaReady = $false
 
     while ($elapsed -lt $TimeoutSeconds) {
         # Check PostgreSQL
@@ -308,8 +309,20 @@ function Wait-ForServices {
             }
         }
 
+        # Check Ollama (non-blocking — don't fail if it's slow)
+        if (-not $ollamaReady) {
+            $ollamaHealth = docker inspect --format='{{.State.Health.Status}}' georisk-ollama 2>$null
+            if ($ollamaHealth -eq "healthy") {
+                Write-Success "Ollama is healthy"
+                $ollamaReady = $true
+            }
+        }
+
         if ($postgresReady -and $minioReady) {
-            Write-Success "All services are healthy"
+            if (-not $ollamaReady) {
+                Write-Warn "Ollama is still starting (will continue in background)"
+            }
+            Write-Success "Core services are healthy"
             return
         }
 
@@ -370,6 +383,65 @@ function Initialize-MinioBuckets {
     $ErrorActionPreference = $prevErrorAction
 }
 
+function Initialize-Ollama {
+    Write-Info "Setting up Ollama LLM service..."
+
+    # Wait for Ollama to be responsive (check via 'ollama list' inside the container)
+    $ollamaReady = $false
+    $elapsed = 0
+    $timeout = 90
+
+    while ($elapsed -lt $timeout) {
+        $prevErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        $null = docker exec georisk-ollama ollama list 2>&1
+        $ollamaExit = $LASTEXITCODE
+        $ErrorActionPreference = $prevErrorAction
+
+        if ($ollamaExit -eq 0) {
+            $ollamaReady = $true
+            break
+        }
+
+        Start-Sleep -Seconds 5
+        $elapsed += 5
+        Write-Host "." -NoNewline
+    }
+    Write-Host ""
+
+    if (-not $ollamaReady) {
+        Write-Warn "Ollama container did not become responsive in time"
+        Write-Warn "You can manually pull the model later with:"
+        Write-Warn "  docker exec georisk-ollama ollama pull llama3.1:8b"
+        return
+    }
+
+    Write-Success "Ollama is responsive"
+
+    # Check if model is already pulled
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    $modelList = docker exec georisk-ollama ollama list 2>&1 | Out-String
+    $ErrorActionPreference = $prevErrorAction
+
+    if ($modelList -match "llama3.1:8b") {
+        Write-Success "Model llama3.1:8b is already available"
+        return
+    }
+
+    # Pull the default model (show progress to the user)
+    Write-Info "Pulling llama3.1:8b model (this may take several minutes on first run)..."
+    docker exec georisk-ollama ollama pull llama3.1:8b
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Model llama3.1:8b pulled successfully"
+    } else {
+        Write-Warn "Failed to pull llama3.1:8b model automatically"
+        Write-Warn "You can pull it manually with:"
+        Write-Warn "  docker exec georisk-ollama ollama pull llama3.1:8b"
+    }
+}
+
 function Show-Summary {
     # Load credentials from .env for display
     $pgUser = "gis"
@@ -396,6 +468,7 @@ function Show-Summary {
     Write-Host "  PostgreSQL/PostGIS: localhost:5432"
     Write-Host "  MinIO API:          localhost:9000"
     Write-Host "  MinIO Console:      http://localhost:9001"
+    Write-Host "  Ollama LLM:         http://localhost:11434"
     Write-Host ""
     Write-Host "Credentials (from $EnvPath):"
     Write-Host "  PostgreSQL: $pgUser / $pgPass"
@@ -441,4 +514,5 @@ Initialize-AppConfigs
 Start-Infrastructure
 Wait-ForServices -TimeoutSeconds 60 -RetryIntervalSeconds 5
 Initialize-MinioBuckets
+Initialize-Ollama
 Show-Summary

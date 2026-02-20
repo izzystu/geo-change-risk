@@ -8,7 +8,6 @@
 </script>
 
 <div class="aoi-selector">
-	<label for="aoi-select">Area of Interest</label>
 	<div class="select-row">
 		<select id="aoi-select" on:change={handleSelect} disabled={$aoiLoading}>
 			<option value="">Select an AOI...</option>
@@ -36,13 +35,6 @@
 	.aoi-selector {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	label {
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: var(--color-text-muted);
 	}
 
 	.select-row {

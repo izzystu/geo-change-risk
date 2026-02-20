@@ -25,6 +25,7 @@
 	let afterImageryLayer: __esri.MediaLayer | null = null;
 	let changePolygonLayer: __esri.GeoJSONLayer | null = null;
 	let highlightLayer: __esri.GraphicsLayer | null = null;
+	let queryResultsLayer: __esri.GeoJSONLayer | null = null;
 
 	// Track current AOI to detect changes
 	let currentAoiId: string | null = null;
@@ -511,6 +512,69 @@
 
 	export function clearHighlights(): void {
 		highlightLayer?.removeAll();
+	}
+
+	export async function showQueryResults(geoJson: GeoJSON.FeatureCollection | null): Promise<void> {
+		if (!map || !mapView || !mapReady) return;
+
+		// Remove existing query results layer
+		if (queryResultsLayer) {
+			map.remove(queryResultsLayer);
+			queryResultsLayer = null;
+		}
+
+		if (!geoJson || !geoJson.features || geoJson.features.length === 0) return;
+
+		const { default: GeoJSONLayer } = await import('@arcgis/core/layers/GeoJSONLayer');
+
+		const blob = new Blob([JSON.stringify(geoJson)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+
+		queryResultsLayer = new GeoJSONLayer({
+			url,
+			title: 'Query Results',
+			visible: true,
+			outFields: ['*'],
+			renderer: {
+				type: 'simple',
+				symbol: {
+					type: 'simple-fill',
+					color: [0, 188, 212, 140], // cyan/teal
+					outline: { color: [0, 150, 170, 255], width: 2 }
+				}
+			} as any,
+			popupTemplate: {
+				title: 'Query Result',
+				content: [
+					{
+						type: 'fields',
+						fieldInfos: [
+							{ fieldName: 'riskScore', label: 'Risk Score' },
+							{ fieldName: 'riskLevelName', label: 'Risk Level' },
+							{ fieldName: 'assetName', label: 'Asset' },
+							{ fieldName: 'assetTypeName', label: 'Asset Type' },
+							{ fieldName: 'changeTypeName', label: 'Change Type' },
+							{ fieldName: 'areaSqMeters', label: 'Area (m2)' },
+							{ fieldName: 'name', label: 'Name' },
+							{ fieldName: 'criticalityName', label: 'Criticality' }
+						]
+					}
+				]
+			}
+		});
+
+		map.add(queryResultsLayer);
+
+		// Zoom to the extent of results
+		try {
+			await queryResultsLayer.when();
+			const extent = await queryResultsLayer.queryExtent();
+			if (extent?.extent) {
+				await mapView.goTo(extent.extent.expand(1.3), { duration: 500 });
+			}
+		} catch (err) {
+			console.warn('Could not zoom to query results:', err);
+		}
 	}
 
 	// Exported function to zoom to a risk event, keeping the asset visible
