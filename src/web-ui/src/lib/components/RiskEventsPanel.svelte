@@ -10,6 +10,7 @@
 		riskEventFilters,
 		assetTypes
 	} from '$lib/stores/processing';
+	import { queryResultEventIds } from '$lib/stores/query';
 	import { api, RiskLevelColors, type RiskEvent } from '$lib/services/api';
 	import { parseFactors, generateSummary, generateSuggestedAction, getFactorBarColor } from '$lib/utils/riskSummary';
 	import TakeActionDialog from './TakeActionDialog.svelte';
@@ -160,15 +161,6 @@
 />
 
 <div class="risk-events-panel">
-	<div class="header">
-		<h3>
-			Risk Events
-			{#if $unacknowledgedCount > 0}
-				<span class="unack-badge">{$unacknowledgedCount}</span>
-			{/if}
-		</h3>
-	</div>
-
 	{#if !$selectedAoiId}
 		<p class="empty-state">Select an AOI to view events</p>
 	{:else if $eventsLoading}
@@ -234,6 +226,13 @@
 				<span>Show acknowledged</span>
 			</label>
 		</div>
+
+		{#if $queryResultEventIds !== null}
+			<div class="query-filter-banner">
+				<span>Filtered by query ({$queryResultEventIds.size} events)</span>
+				<button class="banner-clear-btn" on:click={() => queryResultEventIds.set(null)}>Clear</button>
+			</div>
+		{/if}
 
 		<div class="events-list">
 			{#each $filteredRiskEvents as event}
@@ -340,31 +339,6 @@
 		gap: 0.5rem;
 	}
 
-	.header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	h3 {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--color-text);
-		margin: 0;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.unack-badge {
-		font-size: 0.625rem;
-		padding: 0.125rem 0.375rem;
-		background: var(--color-border);
-		color: var(--color-text-muted);
-		border-radius: 999px;
-		font-weight: 600;
-	}
-
 	.empty-state, .loading {
 		font-size: 0.8125rem;
 		color: var(--color-text-muted);
@@ -407,10 +381,39 @@
 		height: 0.875rem;
 	}
 
+	.query-filter-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.375rem 0.5rem;
+		background: rgba(59, 130, 246, 0.1);
+		border: 1px solid var(--color-primary, #3b82f6);
+		border-radius: var(--radius-sm);
+		font-size: 0.75rem;
+		color: var(--color-primary, #3b82f6);
+	}
+
+	.banner-clear-btn {
+		font-size: 0.6875rem;
+		padding: 0.0625rem 0.375rem;
+		border: 1px solid var(--color-primary, #3b82f6);
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--color-primary, #3b82f6);
+		cursor: pointer;
+	}
+
+	.banner-clear-btn:hover {
+		background: var(--color-primary, #3b82f6);
+		color: white;
+	}
+
 	.events-list {
 		display: flex;
 		flex-direction: column;
 		gap: 0.375rem;
+		max-height: 50vh;
+		overflow-y: auto;
 	}
 
 	.event-item {

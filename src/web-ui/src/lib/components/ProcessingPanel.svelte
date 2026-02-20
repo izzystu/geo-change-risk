@@ -229,21 +229,31 @@
 </script>
 
 <div class="processing-panel">
-	<div class="header">
-		<h3>Processing Runs</h3>
-		<button
-			class="new-run-btn"
-			on:click={() => (showNewRunForm = !showNewRunForm)}
-			disabled={!$selectedAoiId || hasRunInProgress}
-			title={hasRunInProgress ? 'Wait for current run to complete' : ''}
-		>
-			{showNewRunForm ? 'Cancel' : '+ New'}
-		</button>
-	</div>
-
 	{#if !$selectedAoiId}
 		<p class="empty-state">Select an AOI to view runs</p>
-	{:else if showNewRunForm}
+	{:else}
+		{#if !showNewRunForm}
+			<div class="new-run-header">
+				<button
+					class="new-run-btn"
+					on:click={() => (showNewRunForm = true)}
+					disabled={hasRunInProgress}
+					title={hasRunInProgress ? 'Wait for current run to complete' : ''}
+				>
+					+ New Run
+				</button>
+			</div>
+		{/if}
+
+		{#if showNewRunForm}
+		<div class="new-run-header">
+			<button
+				class="new-run-btn cancel"
+				on:click={() => (showNewRunForm = false)}
+			>
+				Cancel
+			</button>
+		</div>
 		<div class="new-run-form">
 			<div class="form-group">
 				<label for="before-date">Before Date</label>
@@ -330,6 +340,7 @@
 				</button>
 			{/each}
 		</div>
+		{/if}
 	{/if}
 </div>
 
@@ -350,17 +361,9 @@
 		gap: 0.5rem;
 	}
 
-	.header {
+	.new-run-header {
 		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	h3 {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--color-text);
-		margin: 0;
+		justify-content: flex-end;
 	}
 
 	.new-run-btn {

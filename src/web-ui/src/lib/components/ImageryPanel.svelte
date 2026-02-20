@@ -83,8 +83,6 @@
 </script>
 
 <div class="imagery-panel">
-	<h3>Satellite Imagery</h3>
-
 	{#if !$selectedAoiId}
 		<p class="empty-state">Select an AOI to view imagery</p>
 	{:else if !$selectedRunId}
@@ -150,13 +148,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
-	}
-
-	h3 {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--color-text);
-		margin: 0;
 	}
 
 	.empty-state, .loading {

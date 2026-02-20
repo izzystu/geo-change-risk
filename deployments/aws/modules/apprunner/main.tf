@@ -169,6 +169,20 @@ resource "aws_iam_role_policy" "instance_secrets" {
   })
 }
 
+resource "aws_iam_role_policy" "instance_bedrock" {
+  name = "bedrock-access"
+  role = aws_iam_role.instance.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["bedrock:InvokeModel"]
+      Resource = "arn:aws:bedrock:${var.region}::foundation-model/*"
+    }]
+  })
+}
+
 resource "aws_iam_role_policy" "instance_scheduler" {
   name = "scheduler-access"
   role = aws_iam_role.instance.id
@@ -224,6 +238,9 @@ resource "aws_apprunner_service" "api" {
           "Aws__PipelineSecurityGroupId" = var.pipeline_sg_id
           "Aws__SchedulerRoleArn"      = var.scheduler_role_arn
           "Aws__ScheduleGroupName"     = "georisk-schedules"
+          "Llm__Provider"              = "bedrock"
+          "Llm__Bedrock__Region"       = var.region
+          "Llm__Bedrock__ModelId"      = "anthropic.claude-3-haiku-20240307-v1:0"
           "Cors__AllowedOrigins__0"    = "*"
         }
 

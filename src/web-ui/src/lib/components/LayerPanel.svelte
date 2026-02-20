@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { layers, toggleLayer, setAllLayersVisible, basemapOptions, selectedBasemap } from '$lib/stores/layers';
+	import { layers, toggleLayer, setAllLayersVisible } from '$lib/stores/layers';
 	import { showChangePolygons, changePolygonsGeoJson } from '$lib/stores/processing';
 
 	let allVisible = true;
@@ -18,18 +18,7 @@
 </script>
 
 <div class="layer-panel">
-	<div class="basemap-section">
-		<label class="basemap-label" for="basemap-select">Basemap</label>
-		<select id="basemap-select" class="basemap-select" bind:value={$selectedBasemap}>
-			{#each basemapOptions as option}
-				<option value={option.id}>{option.name}</option>
-			{/each}
-		</select>
-	</div>
-
 	{#if hasChangePolygons}
-		<div class="divider"></div>
-
 		<div class="header">
 			<h3>Change Detection</h3>
 		</div>
@@ -45,9 +34,9 @@
 				<span class="layer-name">Change Polygons</span>
 			</label>
 		</div>
-	{/if}
 
-	<div class="divider"></div>
+		<div class="divider"></div>
+	{/if}
 
 	<div class="header">
 		<h3>Asset Layers</h3>
@@ -76,37 +65,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
-	}
-
-	.basemap-section {
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
-	}
-
-	.basemap-label {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--color-text);
-	}
-
-	.basemap-select {
-		padding: 0.5rem;
-		font-size: 0.875rem;
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-sm);
-		background: var(--color-bg);
-		color: var(--color-text);
-		cursor: pointer;
-	}
-
-	.basemap-select:hover {
-		border-color: var(--color-text-muted);
-	}
-
-	.basemap-select:focus {
-		outline: none;
-		border-color: var(--color-primary);
 	}
 
 	.divider {

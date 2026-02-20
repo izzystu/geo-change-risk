@@ -14,7 +14,6 @@
 	} from '$lib/stores/scheduling';
 	import { api, type ProcessingRunSummary } from '$lib/services/api';
 
-	let expanded = false;
 	let selectedPreset = '';
 	let customCron = '';
 	let showCustomInput = false;
@@ -145,17 +144,6 @@
 
 {#if $selectedAoiId}
 <div class="panel">
-	<button class="panel-header" on:click={() => expanded = !expanded}>
-		<div class="panel-title">
-			<span>Scheduling</span>
-			<span class="status-badge" class:active={scheduleStatus === 'active'} class:paused={scheduleStatus === 'paused'}>
-				{scheduleStatus === 'active' ? 'Active' : scheduleStatus === 'paused' ? 'Paused' : 'Off'}
-			</span>
-		</div>
-		<span class="chevron" class:collapsed={!expanded}>&#9660;</span>
-	</button>
-
-	{#if expanded}
 	<div class="panel-body">
 		<!-- Schedule Settings -->
 		<div class="section">
@@ -261,74 +249,18 @@
 		</div>
 		{/if}
 	</div>
-	{/if}
 </div>
 {/if}
 
 <style>
 	.panel {
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
-		overflow: hidden;
-	}
-
-	.panel-header {
-		width: 100%;
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.75rem 1rem;
-		background: none;
-		border: none;
-		cursor: pointer;
-		font-size: 0.8125rem;
-		font-weight: 600;
-		color: var(--color-text);
-	}
-
-	.panel-header:hover {
-		background: var(--color-bg);
-	}
-
-	.panel-title {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.chevron {
-		font-size: 0.625rem;
-		color: var(--color-text-muted);
-		transition: transform 0.2s;
-	}
-
-	.chevron.collapsed {
-		transform: rotate(-90deg);
-	}
-
-	.status-badge {
-		font-size: 0.625rem;
-		font-weight: 600;
-		padding: 0.125rem 0.375rem;
-		border-radius: var(--radius-sm);
-		text-transform: uppercase;
-		background: var(--color-bg);
-		color: var(--color-text-muted);
-	}
-
-	.status-badge.active {
-		background: #dcfce7;
-		color: #166534;
-	}
-
-	.status-badge.paused {
-		background: #fef3c7;
-		color: #92400e;
+		flex-direction: column;
 	}
 
 	.panel-body {
-		padding: 0 1rem 1rem;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.section {

@@ -48,6 +48,7 @@
     <PackageReference Include="AWSSDK.ECS" Version="3.7.508.10" />
     <PackageReference Include="AWSSDK.Scheduler" Version="3.7.502.39" />
     <PackageReference Include="AWSSDK.CloudWatchLogs" Version="3.7.507.23" />
+    <PackageReference Include="AWSSDK.BedrockRuntime" Version="3.*" />
   </ItemGroup>
 
 </Project>
