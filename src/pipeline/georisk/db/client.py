@@ -1,5 +1,6 @@
 """HTTP client for the GeoRisk API."""
 
+from enum import IntEnum
 from typing import Any
 from uuid import UUID
 
@@ -25,6 +26,7 @@ class ApiClient:
         config = get_config()
         self.base_url = (base_url or config.api.base_url).rstrip("/")
         self.timeout = timeout or config.api.timeout
+        self.api_key = config.api.api_key
 
         self._client: httpx.Client | None = None
 
@@ -32,9 +34,13 @@ class ApiClient:
     def client(self) -> httpx.Client:
         """Get or create the HTTP client."""
         if self._client is None:
+            headers = {}
+            if self.api_key:
+                headers["X-Api-Key"] = self.api_key
             self._client = httpx.Client(
                 base_url=self.base_url,
                 timeout=self.timeout,
+                headers=headers,
             )
         return self._client
 
@@ -227,6 +233,21 @@ class ApiClient:
         response.raise_for_status()
         return response.json()
 
+    def get_latest_completed_run(self, aoi_id: str) -> dict[str, Any] | None:
+        """Get the latest completed processing run for an AOI.
+
+        Args:
+            aoi_id: The AOI identifier.
+
+        Returns:
+            Latest completed processing run or None if not found.
+        """
+        params = {"aoiId": aoi_id, "status": ProcessingStatus.COMPLETED, "limit": 1}
+        response = self.client.get("/api/processing/runs", params=params)
+        response.raise_for_status()
+        runs = response.json()
+        return runs[0] if runs else None
+
     # Change Polygons
 
     def create_change_polygons(
@@ -309,7 +330,7 @@ class ApiClient:
 
 
 # Processing status enum values (matching C# enum)
-class ProcessingStatus:
+class ProcessingStatus(IntEnum):
     """Processing status values for API updates."""
 
     PENDING = 0

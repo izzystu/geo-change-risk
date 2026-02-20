@@ -76,4 +76,14 @@ public class AreaOfInterest
     /// Default number of days to look back for "before" imagery.
     /// </summary>
     public int DefaultLookbackDays { get; set; } = 90;
+
+    /// <summary>
+    /// Maximum cloud cover percentage for acceptable imagery (0-100). Default: 20.0
+    /// </summary>
+    public double MaxCloudCover { get; set; } = 20.0;
+
+    /// <summary>
+    /// When the scheduler last checked for new imagery.
+    /// </summary>
+    public DateTime? LastCheckedAt { get; set; }
 }

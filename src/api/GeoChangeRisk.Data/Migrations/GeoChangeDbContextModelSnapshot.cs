@@ -51,8 +51,16 @@ namespace GeoChangeRisk.Data.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<DateTime?>("LastCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("LastProcessedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("MaxCloudCover")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("double precision")
+                        .HasDefaultValue(20.0);
 
                     b.Property<string>("Name")
                         .IsRequired()

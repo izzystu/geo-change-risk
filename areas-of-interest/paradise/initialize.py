@@ -7,6 +7,7 @@ Loads downloaded GeoJSON data into the database via the API.
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -21,6 +22,8 @@ with open(CONFIG_PATH) as f:
     CONFIG = json.load(f)
 
 # Asset type mapping (matches AssetType enum in C# code)
+SESSION: requests.Session = requests.Session()
+
 ASSET_TYPES = {
     "TransmissionLine": 0,
     "Substation": 1,
@@ -56,7 +59,7 @@ def create_aoi(api_url: str) -> bool:
         "center": CONFIG["center"]
     }
 
-    response = requests.post(f"{api_url}/api/areas-of-interest", json=payload, timeout=30)
+    response = SESSION.post(f"{api_url}/api/areas-of-interest", json=payload, timeout=30)
 
     if response.status_code == 201:
         print(f"  Created AOI: {CONFIG['aoi_id']}")
@@ -73,7 +76,7 @@ def delete_existing_assets(api_url: str) -> int:
     """Delete existing assets for this AOI."""
     print(f"Deleting existing assets for AOI: {CONFIG['aoi_id']}...")
 
-    response = requests.delete(
+    response = SESSION.delete(
         f"{api_url}/api/assets",
         params={"aoiId": CONFIG["aoi_id"]},
         timeout=60
@@ -257,7 +260,7 @@ def bulk_upload_assets(api_url: str, assets: list, source_dataset: str) -> tuple
         }
 
         try:
-            response = requests.post(
+            response = SESSION.post(
                 f"{api_url}/api/assets/bulk",
                 json=payload,
                 timeout=120
@@ -544,12 +547,25 @@ def process_hifld_schools(api_url: str) -> tuple[int, int]:
     return success, failure
 
 
+def make_session(api_key: str | None = None) -> requests.Session:
+    """Create a requests session with optional API key auth."""
+    session = requests.Session()
+    if api_key:
+        session.headers["X-Api-Key"] = api_key
+    return session
+
+
 def main():
     parser = argparse.ArgumentParser(description="Initialize Paradise AOI in database")
     parser.add_argument(
         "--api-url",
         default="http://localhost:5074",
         help="API base URL (default: http://localhost:5074)"
+    )
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="API key for authentication (default: reads GEORISK_API_KEY env var)"
     )
     parser.add_argument(
         "--clear",
@@ -559,14 +575,21 @@ def main():
     args = parser.parse_args()
 
     api_url = args.api_url.rstrip("/")
+    api_key = args.api_key or os.environ.get("GEORISK_API_KEY")
 
     print(f"Initializing: {CONFIG['name']}")
     print(f"API URL: {api_url}")
+    if api_key:
+        print(f"API Key: {'*' * (len(api_key) - 4)}{api_key[-4:]}")
     print()
 
-    # Check API is available
+    # Create authenticated session
+    global SESSION
+    SESSION = make_session(api_key)
+
+    # Check API is available (use /health which doesn't require auth)
     try:
-        response = requests.get(f"{api_url}/api/system/health", timeout=10)
+        response = requests.get(f"{api_url}/health", timeout=10)
         if response.status_code != 200:
             print(f"Error: API health check failed: {response.status_code}")
             sys.exit(1)
@@ -644,7 +667,7 @@ def main():
     # Verify
     print()
     print("Verifying...")
-    response = requests.get(f"{api_url}/api/system/stats", timeout=10)
+    response = SESSION.get(f"{api_url}/api/system/stats", timeout=10)
     if response.status_code == 200:
         db_stats = response.json()
         print(f"  AOIs in database: {db_stats.get('areasOfInterest', 0)}")

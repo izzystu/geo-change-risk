@@ -16,6 +16,12 @@ export interface AreaOfInterest {
 	center: [number, number];
 	assetCount: number;
 	createdAt: string;
+	processingSchedule: string | null;
+	processingEnabled: boolean;
+	lastProcessedAt: string | null;
+	defaultLookbackDays: number;
+	maxCloudCover: number;
+	lastCheckedAt: string | null;
 }
 
 export interface Asset {
@@ -102,6 +108,13 @@ export interface CreateProcessingRunRequest {
 	parameters?: Record<string, unknown>;
 }
 
+export interface UpdateAoiScheduleRequest {
+	processingSchedule?: string | null;
+	processingEnabled?: boolean;
+	defaultLookbackDays?: number;
+	maxCloudCover?: number;
+}
+
 // Risk event types
 export interface RiskEventSummary {
 	riskEventId: string;
@@ -135,6 +148,52 @@ export interface RiskEventStats {
 	totalEvents: number;
 	unacknowledgedEvents: number;
 	byRiskLevel: Record<string, number>;
+}
+
+// Natural Language Query types
+export interface NaturalLanguageQueryRequest {
+	query: string;
+	aoiId?: string;
+}
+
+export interface NaturalLanguageQueryResponse {
+	interpretation: string;
+	queryPlan?: QueryPlan;
+	totalCount: number;
+	results: unknown[];
+	geoJson?: GeoJSON.FeatureCollection;
+	success: boolean;
+	errorMessage?: string;
+}
+
+export interface QueryPlan {
+	targetEntity: string;
+	filters: QueryFilter[];
+	spatialFilter?: SpatialFilter;
+	dateRange?: DateRangeFilter;
+	aoiId?: string;
+	orderBy?: string;
+	orderDescending: boolean;
+	limit?: number;
+}
+
+export interface QueryFilter {
+	property: string;
+	operator: string;
+	value: string;
+}
+
+export interface SpatialFilter {
+	operation: string;
+	referenceEntityType: string;
+	referenceFilters: QueryFilter[];
+	distanceMeters?: number;
+}
+
+export interface DateRangeFilter {
+	property: string;
+	from?: string;
+	to?: string;
 }
 
 export const RiskLevelColors: Record<string, string> = {
@@ -171,14 +230,29 @@ export const CriticalityColors: Record<number, string> = {
 	3: '#ef4444'  // red
 };
 
+function getAuthHeaders(): Record<string, string> {
+	if (typeof localStorage === 'undefined') return {};
+	const key = localStorage.getItem('georisk_api_key');
+	if (key) return { 'X-Api-Key': key };
+	return {};
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 	const response = await fetch(url, {
 		...options,
 		headers: {
 			'Content-Type': 'application/json',
+			...getAuthHeaders(),
 			...options?.headers
 		}
 	});
+
+	if (response.status === 401) {
+		if (typeof window !== 'undefined') {
+			window.dispatchEvent(new CustomEvent('georisk:unauthorized'));
+		}
+		throw new Error('Unauthorized — invalid or missing API key');
+	}
 
 	if (!response.ok) {
 		throw new Error(`API error: ${response.status} ${response.statusText}`);
@@ -200,6 +274,17 @@ export const api = {
 
 	async getAreaOfInterest(id: string): Promise<AreaOfInterest> {
 		return fetchJson(`${API_BASE}/api/areas-of-interest/${id}`);
+	},
+
+	async updateAoiSchedule(aoiId: string, request: UpdateAoiScheduleRequest): Promise<AreaOfInterest> {
+		return fetchJson(`${API_BASE}/api/areas-of-interest/${aoiId}/schedule`, {
+			method: 'PUT',
+			body: JSON.stringify(request)
+		});
+	},
+
+	async getScheduledAois(): Promise<AreaOfInterestSummary[]> {
+		return fetchJson(`${API_BASE}/api/areas-of-interest/scheduled`);
 	},
 
 	// Assets
@@ -239,8 +324,14 @@ export const api = {
 
 		const response = await fetch(url, {
 			method: 'POST',
+			headers: getAuthHeaders(),
 			body: formData
 		});
+
+		if (response.status === 401) {
+			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('georisk:unauthorized'));
+			throw new Error('Unauthorized — invalid or missing API key');
+		}
 
 		if (!response.ok) {
 			throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
@@ -251,8 +342,14 @@ export const api = {
 
 	async deleteImageryScene(aoiId: string, sceneId: string): Promise<void> {
 		const response = await fetch(`${API_BASE}/api/imagery/${aoiId}/${sceneId}`, {
-			method: 'DELETE'
+			method: 'DELETE',
+			headers: getAuthHeaders()
 		});
+
+		if (response.status === 401) {
+			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('georisk:unauthorized'));
+			throw new Error('Unauthorized — invalid or missing API key');
+		}
 
 		if (!response.ok) {
 			throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
@@ -338,8 +435,14 @@ export const api = {
 	// Delete processing run
 	async deleteProcessingRun(runId: string): Promise<void> {
 		const response = await fetch(`${API_BASE}/api/processing/runs/${runId}`, {
-			method: 'DELETE'
+			method: 'DELETE',
+			headers: getAuthHeaders()
 		});
+
+		if (response.status === 401) {
+			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('georisk:unauthorized'));
+			throw new Error('Unauthorized — invalid or missing API key');
+		}
 
 		if (!response.ok) {
 			throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
@@ -349,5 +452,17 @@ export const api = {
 	// Get change polygons GeoJSON for a specific run
 	async getRunChangesGeoJson(runId: string): Promise<AssetGeoJSON> {
 		return fetchJson(`${API_BASE}/api/processing/runs/${runId}/changes/geojson`);
+	},
+
+	// Natural Language Query
+	async queryNaturalLanguage(request: NaturalLanguageQueryRequest): Promise<NaturalLanguageQueryResponse> {
+		return fetchJson(`${API_BASE}/api/query`, {
+			method: 'POST',
+			body: JSON.stringify(request)
+		});
+	},
+
+	async getQueryHealth(): Promise<{ available: boolean }> {
+		return fetchJson(`${API_BASE}/api/query/health`);
 	}
 };

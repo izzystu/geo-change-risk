@@ -135,6 +135,12 @@ DEFAULT_SCORING = {
             "Highway": 0.25,
         },
     },
+    "landslide": {
+        "multiplier": 1.8,
+        "upslope_boost": 0.5,
+        "min_slope_deg": 15.0,
+        "max_multiplier": 2.5,
+    },
     "criticality": {
         "max_points": 10,
         "multipliers": {
@@ -234,8 +240,22 @@ class RiskScorer:
             total_score += aspect_score.points
 
         # Apply land cover multiplier (before criticality)
+        # Skip for confirmed landslides — landslide detection is a specific ML
+        # signal that overrides the generic land cover context. EuroSAT may
+        # misclassify debris fields as crops/bare soil, which would incorrectly
+        # suppress scores for genuine landslide threats.
+        is_landslide = change.change_type == "LandslideDebris"
         lc_multiplier = self._get_land_cover_multiplier(change.land_cover_class)
-        if lc_multiplier != 1.0:
+        if is_landslide and lc_multiplier < 1.0:
+            lc_factor = ScoringFactor(
+                name="Land Cover",
+                points=0,
+                max_points=0,
+                reason_code=f"LANDCOVER_{change.land_cover_class.upper()}_SKIP" if change.land_cover_class else "LANDCOVER_UNKNOWN",
+                details=f"Land cover: {change.land_cover_class or 'unknown'} (multiplier: {lc_multiplier:.2f}x, skipped for confirmed landslide)",
+            )
+            factors.append(lc_factor)
+        elif lc_multiplier != 1.0:
             lc_delta = int(total_score * lc_multiplier) - total_score
             lc_factor = ScoringFactor(
                 name="Land Cover",
@@ -256,6 +276,26 @@ class RiskScorer:
                 details=f"Land cover: {change.land_cover_class} (multiplier: 1.00x, baseline)",
             )
             factors.append(lc_factor)
+
+        # Apply landslide multiplier (after land cover, before criticality)
+        ls_factor = self._score_landslide(change, proximity.elevation_diff_m)
+        if ls_factor is not None:
+            if ls_factor.reason_code != "LANDSLIDE_LOW_SLOPE":
+                # Parse multiplier from the details string
+                ls_config = self.config.get("landslide", {})
+                base_mult = ls_config.get("multiplier", 1.8)
+                upslope_boost = ls_config.get("upslope_boost", 0.5)
+                max_mult = ls_config.get("max_multiplier", 2.5)
+
+                ls_mult = base_mult
+                if (proximity.elevation_diff_m is not None
+                        and proximity.elevation_diff_m > 5.0):
+                    ls_mult = min(base_mult + upslope_boost, max_mult)
+
+                ls_delta = int(total_score * ls_mult) - total_score
+                ls_factor.points = ls_delta
+                total_score = int(total_score * ls_mult)
+            factors.append(ls_factor)
 
         # Apply criticality multiplier
         multiplier = self.config["criticality"]["multipliers"].get(proximity.criticality, 1.0)
@@ -535,6 +575,67 @@ class RiskScorer:
         lc_config = self.config.get("land_cover", {})
         multipliers = lc_config.get("multipliers", {})
         return multipliers.get(land_cover_class, 1.0)
+
+    def _score_landslide(
+        self,
+        change: ChangePolygon,
+        elevation_diff_m: float | None,
+    ) -> ScoringFactor | None:
+        """Score based on landslide classification.
+
+        Only applies when change_type is "LandslideDebris". Returns a
+        multiplicative factor that amplifies the score for confirmed landslides,
+        especially those upslope from assets.
+
+        Args:
+            change: The detected change polygon.
+            elevation_diff_m: Elevation difference (change - asset).
+                Positive = change is upslope from asset.
+
+        Returns:
+            ScoringFactor with landslide multiplier, or None for non-landslide polygons.
+        """
+        if change.change_type != "LandslideDebris":
+            return None
+
+        ls_config = self.config.get("landslide", {})
+        base_multiplier = ls_config.get("multiplier", 1.8)
+        upslope_boost = ls_config.get("upslope_boost", 0.5)
+        min_slope_deg = ls_config.get("min_slope_deg", 15.0)
+        max_multiplier = ls_config.get("max_multiplier", 2.5)
+
+        slope = change.slope_degree_mean or 0.0
+
+        # Below minimum slope: record informational factor but don't apply multiplier
+        if slope < min_slope_deg:
+            return ScoringFactor(
+                name="Landslide Detection",
+                points=0,
+                max_points=0,
+                reason_code="LANDSLIDE_LOW_SLOPE",
+                details=(
+                    f"Landslide detected but slope {slope:.1f}\u00b0 "
+                    f"< {min_slope_deg:.0f}\u00b0 threshold"
+                ),
+            )
+
+        # Calculate multiplier
+        multiplier = base_multiplier
+        direction_desc = "level/unknown terrain"
+
+        if elevation_diff_m is not None and elevation_diff_m > 5.0:
+            multiplier = min(base_multiplier + upslope_boost, max_multiplier)
+            direction_desc = f"upslope ({elevation_diff_m:.0f}m higher)"
+        elif elevation_diff_m is not None and elevation_diff_m < -5.0:
+            direction_desc = f"downslope ({abs(elevation_diff_m):.0f}m lower)"
+
+        return ScoringFactor(
+            name="Landslide Detection",
+            points=0,  # Points will be computed by the caller as a multiplicative delta
+            max_points=0,
+            reason_code="LANDSLIDE_UPSLOPE" if elevation_diff_m and elevation_diff_m > 5.0 else "LANDSLIDE_DETECTED",
+            details=f"Landslide on {slope:.1f}\u00b0 slope, {direction_desc} (multiplier: {multiplier:.2f}x)",
+        )
 
     def _aspect_to_compass(self, aspect: float) -> str:
         """Convert aspect degrees to compass direction."""

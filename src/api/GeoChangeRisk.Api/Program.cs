@@ -1,3 +1,7 @@
+using Amazon.BedrockRuntime;
+using Amazon.S3;
+using Amazon.Scheduler;
+using GeoChangeRisk.Api.Jobs;
 using GeoChangeRisk.Api.Services;
 using GeoChangeRisk.Contracts;
 using GeoChangeRisk.Data;
@@ -61,7 +65,8 @@ builder.Services.AddHangfire(configuration => configuration
 // Add Hangfire server (processes background jobs)
 builder.Services.AddHangfireServer();
 
-// Configure CORS
+// Configure CORS — always allow any origin when deployed to AWS (behind CloudFront)
+var isAwsDeployment = builder.Configuration["Storage:Provider"] == "s3";
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? ["http://localhost:5173"];
 
@@ -69,9 +74,18 @@ builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins(corsOrigins)
-            .AllowAnyMethod()
-            .AllowAnyHeader();
+        if (isAwsDeployment || corsOrigins.Any(o => o == "*"))
+        {
+            policy.AllowAnyOrigin()
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        }
+        else
+        {
+            policy.WithOrigins(corsOrigins)
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        }
     });
 });
 
@@ -91,33 +105,86 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<GeoChangeDbContext>("database");
 
-// Configure MinIO client
-var minioEndpoint = builder.Configuration["MinIO:Endpoint"] ?? "localhost:9000";
-var minioAccessKey = builder.Configuration["MinIO:AccessKey"];
-var minioSecretKey = builder.Configuration["MinIO:SecretKey"];
-if (string.IsNullOrWhiteSpace(minioAccessKey) || string.IsNullOrWhiteSpace(minioSecretKey))
-    throw new InvalidOperationException(
-        "MinIO credentials are not configured (MinIO:AccessKey / MinIO:SecretKey). " +
-        "Run the setup script to generate appsettings.Development.json.");
-var minioUseSSL = builder.Configuration.GetValue<bool>("MinIO:UseSSL", false);
+// Configure object storage (S3 or MinIO)
+var storageProvider = builder.Configuration["Storage:Provider"] ?? "minio";
 
-builder.Services.AddSingleton<IMinioClient>(sp =>
+if (storageProvider == "s3")
 {
-    return new MinioClient()
-        .WithEndpoint(minioEndpoint)
-        .WithCredentials(minioAccessKey, minioSecretKey)
-        .WithSSL(minioUseSSL)
-        .Build();
-});
+    builder.Services.AddSingleton<IAmazonS3>(new AmazonS3Client());
+    builder.Services.AddSingleton<IObjectStorageService, S3ObjectStorageService>();
+}
+else
+{
+    var minioEndpoint = builder.Configuration["MinIO:Endpoint"] ?? "localhost:9000";
+    var minioAccessKey = builder.Configuration["MinIO:AccessKey"];
+    var minioSecretKey = builder.Configuration["MinIO:SecretKey"];
+    if (string.IsNullOrWhiteSpace(minioAccessKey) || string.IsNullOrWhiteSpace(minioSecretKey))
+        throw new InvalidOperationException(
+            "MinIO credentials are not configured (MinIO:AccessKey / MinIO:SecretKey). " +
+            "Run the setup script to generate appsettings.Development.json.");
+    var minioUseSSL = builder.Configuration.GetValue<bool>("MinIO:UseSSL", false);
 
-builder.Services.AddSingleton<IObjectStorageService, ObjectStorageService>();
+    builder.Services.AddSingleton<IMinioClient>(sp =>
+    {
+        return new MinioClient()
+            .WithEndpoint(minioEndpoint)
+            .WithCredentials(minioAccessKey, minioSecretKey)
+            .WithSSL(minioUseSSL)
+            .Build();
+    });
+
+    builder.Services.AddSingleton<IObjectStorageService, ObjectStorageService>();
+}
 builder.Services.AddSingleton<IGeometryParsingService, GeometryParsingService>();
+
+// Configure scheduler (Hangfire or EventBridge)
+var schedulerProvider = builder.Configuration["Scheduler:Provider"] ?? "hangfire";
+
+if (schedulerProvider == "eventbridge")
+{
+    builder.Services.AddSingleton<AmazonSchedulerClient>();
+    builder.Services.AddSingleton<ISchedulerService, EventBridgeSchedulerService>();
+}
+else
+{
+    builder.Services.AddSingleton<ISchedulerService, HangfireSchedulerService>();
+}
+
+// Configure pipeline executor (local subprocess or ECS)
+var pipelineMode = builder.Configuration["Pipeline:ExecutionMode"] ?? "local";
+
+if (pipelineMode == "ecs")
+{
+    builder.Services.AddSingleton<Amazon.ECS.AmazonECSClient>();
+    builder.Services.AddSingleton<IPipelineExecutor, EcsPipelineExecutor>();
+}
+else
+{
+    builder.Services.AddSingleton<IPipelineExecutor, LocalPipelineExecutor>();
+}
 
 // Configure notification service
 builder.Services.Configure<NotificationOptions>(
     builder.Configuration.GetSection(NotificationOptions.SectionName));
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+
+// Configure LLM service (Ollama or Bedrock)
+builder.Services.Configure<LlmOptions>(
+    builder.Configuration.GetSection(LlmOptions.SectionName));
+
+var llmProvider = builder.Configuration["Llm:Provider"] ?? "ollama";
+
+if (llmProvider == "bedrock")
+{
+    builder.Services.AddSingleton<AmazonBedrockRuntimeClient>();
+    builder.Services.AddScoped<ILlmService, BedrockLlmService>();
+}
+else
+{
+    builder.Services.AddScoped<ILlmService, OllamaLlmService>();
+}
+builder.Services.AddScoped<QueryExecutorService>();
 
 var app = builder.Build();
 
@@ -138,12 +205,53 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 
+// API key authentication middleware
+var apiKey = builder.Configuration["Auth:ApiKey"];
+if (!string.IsNullOrEmpty(apiKey))
+{
+    app.Use(async (context, next) =>
+    {
+        var path = context.Request.Path.Value ?? "";
+
+        // Exempt health check and swagger from auth
+        if (path.Equals("/health", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/hangfire", StringComparison.OrdinalIgnoreCase))
+        {
+            await next();
+            return;
+        }
+
+        if (!context.Request.Headers.TryGetValue("X-Api-Key", out var providedKey) ||
+            providedKey != apiKey)
+        {
+            context.Response.StatusCode = 401;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Unauthorized\"}");
+            return;
+        }
+
+        await next();
+    });
+}
+
 app.UseAuthorization();
 
 app.MapControllers();
 
 // Hangfire dashboard for monitoring jobs
 app.UseHangfireDashboard("/hangfire");
+
+// Sync recurring check schedules on startup
+try
+{
+    var schedulerService = app.Services.GetRequiredService<ISchedulerService>();
+    await schedulerService.SyncAllSchedulesAsync();
+}
+catch (Exception ex)
+{
+    app.Logger.LogWarning(ex, "Failed to sync schedules on startup");
+}
 
 // Health check endpoint
 app.MapHealthChecks("/health");
@@ -156,25 +264,42 @@ var logger = app.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("Geo Change Risk API starting...");
 logger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
 
-// Initialize MinIO buckets on startup
+// Apply pending EF Core migrations on startup
+try
+{
+    using var migrationScope = app.Services.CreateScope();
+    var db = migrationScope.ServiceProvider.GetRequiredService<GeoChangeDbContext>();
+    await db.Database.MigrateAsync();
+    logger.LogInformation("Database migrations applied successfully");
+}
+catch (Exception ex)
+{
+    logger.LogWarning(ex, "Failed to apply database migrations on startup");
+}
+
+// Initialize storage buckets on startup
 try
 {
     var storageService = app.Services.GetRequiredService<IObjectStorageService>();
-    var bucketRasters = builder.Configuration["MinIO:BucketRasters"] ?? "geo-rasters";
-    var bucketArtifacts = builder.Configuration["MinIO:BucketArtifacts"] ?? "geo-artifacts";
-    var bucketImagery = builder.Configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
-    var bucketChanges = builder.Configuration["MinIO:BucketChanges"] ?? "georisk-changes";
+    var bucketRasters = builder.Configuration["Storage:BucketRasters"]
+        ?? builder.Configuration["MinIO:BucketRasters"] ?? "geo-rasters";
+    var bucketArtifacts = builder.Configuration["Storage:BucketArtifacts"]
+        ?? builder.Configuration["MinIO:BucketArtifacts"] ?? "geo-artifacts";
+    var bucketImagery = builder.Configuration["Storage:BucketImagery"]
+        ?? builder.Configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
+    var bucketChanges = builder.Configuration["Storage:BucketChanges"]
+        ?? builder.Configuration["MinIO:BucketChanges"] ?? "georisk-changes";
 
     await storageService.EnsureBucketExistsAsync(bucketRasters);
     await storageService.EnsureBucketExistsAsync(bucketArtifacts);
     await storageService.EnsureBucketExistsAsync(bucketImagery);
     await storageService.EnsureBucketExistsAsync(bucketChanges);
-    logger.LogInformation("MinIO buckets initialized: {Rasters}, {Artifacts}, {Imagery}, {Changes}",
+    logger.LogInformation("Storage buckets initialized: {Rasters}, {Artifacts}, {Imagery}, {Changes}",
         bucketRasters, bucketArtifacts, bucketImagery, bucketChanges);
 }
 catch (Exception ex)
 {
-    logger.LogWarning(ex, "Failed to initialize MinIO buckets. Object storage may not be available.");
+    logger.LogWarning(ex, "Failed to initialize storage buckets. Object storage may not be available.");
 }
 
 logger.LogInformation("Swagger UI: http://localhost:{Port}/swagger",

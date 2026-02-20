@@ -39,10 +39,16 @@ class MinioStorage:
         self.secure = secure if secure is not None else config.minio.secure
         self.bucket_imagery = config.minio.bucket_imagery
         self.bucket_changes = config.minio.bucket_changes
+        self.bucket_models = config.minio.bucket_models
 
-        # Build endpoint URL
-        protocol = "https" if self.secure else "http"
-        self.endpoint_url = f"{protocol}://{self.endpoint}"
+        # Determine if running in S3 mode (no endpoint) or MinIO mode
+        self._s3_mode = not self.endpoint
+
+        if not self._s3_mode:
+            protocol = "https" if self.secure else "http"
+            self.endpoint_url = f"{protocol}://{self.endpoint}"
+        else:
+            self.endpoint_url = None
 
         self._client = None
 
@@ -50,21 +56,30 @@ class MinioStorage:
     def client(self) -> Any:
         """Get or create the boto3 S3 client."""
         if self._client is None:
-            self._client = boto3.client(
-                "s3",
-                endpoint_url=self.endpoint_url,
-                aws_access_key_id=self.access_key,
-                aws_secret_access_key=self.secret_key,
-                config=BotoConfig(
-                    signature_version="s3v4",
-                    s3={"addressing_style": "path"},
-                ),
-            )
-            logger.info("Connected to MinIO", endpoint=self.endpoint)
+            if self._s3_mode:
+                # S3 mode: use IAM role credentials and default S3 endpoint
+                self._client = boto3.client("s3")
+                logger.info("Connected to AWS S3 (IAM role)")
+            else:
+                # MinIO mode: explicit endpoint, credentials, path addressing
+                self._client = boto3.client(
+                    "s3",
+                    endpoint_url=self.endpoint_url,
+                    aws_access_key_id=self.access_key,
+                    aws_secret_access_key=self.secret_key,
+                    config=BotoConfig(
+                        signature_version="s3v4",
+                        s3={"addressing_style": "path"},
+                    ),
+                )
+                logger.info("Connected to MinIO", endpoint=self.endpoint)
         return self._client
 
     def ensure_bucket(self, bucket: str) -> None:
         """Ensure a bucket exists, creating it if necessary.
+
+        In S3 mode, buckets are managed by infrastructure (Terraform) and
+        should already exist. In MinIO mode, create if missing.
 
         Args:
             bucket: Bucket name.
@@ -74,6 +89,11 @@ class MinioStorage:
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "")
             if error_code in ("404", "NoSuchBucket"):
+                if self._s3_mode:
+                    raise RuntimeError(
+                        f"S3 bucket '{bucket}' not found. Buckets are managed by "
+                        f"Terraform — check MINIO_BUCKET_IMAGERY / MINIO_BUCKET_CHANGES env vars."
+                    ) from e
                 self.client.create_bucket(Bucket=bucket)
                 logger.info("Created bucket", bucket=bucket)
             else:
@@ -270,6 +290,96 @@ class MinioStorage:
             object_key,
             content_type="image/tiff",
         )
+
+    def upload_model(
+        self,
+        local_path: Path,
+        model_name: str = "landslide",
+        version: str | None = None,
+        filename: str | None = None,
+    ) -> str:
+        """Upload an ML model file to the models bucket.
+
+        Args:
+            local_path: Path to the local model file.
+            model_name: Model name (used as key prefix).
+            version: Optional version string (e.g. "v1").
+            filename: Optional filename (defaults to local filename).
+
+        Returns:
+            Full object path (bucket/key).
+        """
+        filename = filename or local_path.name
+        if version:
+            object_key = f"{model_name}/{version}/{filename}"
+        else:
+            object_key = f"{model_name}/{filename}"
+
+        return self.upload_file(
+            local_path,
+            self.bucket_models,
+            object_key,
+        )
+
+    def download_model(
+        self,
+        local_path: Path,
+        model_name: str = "landslide",
+        version: str | None = None,
+        filename: str = "landslide_model.pth",
+    ) -> Path:
+        """Download an ML model file from the models bucket.
+
+        Args:
+            local_path: Local path to save the file.
+            model_name: Model name (key prefix).
+            version: Optional version string.
+            filename: Model filename in storage.
+
+        Returns:
+            Path to the downloaded file.
+        """
+        if version:
+            object_key = f"{model_name}/{version}/{filename}"
+        else:
+            object_key = f"{model_name}/{filename}"
+
+        return self.download_file(self.bucket_models, object_key, local_path)
+
+    def model_exists(
+        self,
+        model_name: str = "landslide",
+        version: str | None = None,
+        filename: str = "landslide_model.pth",
+    ) -> bool:
+        """Check if an ML model exists in the models bucket.
+
+        Args:
+            model_name: Model name (key prefix).
+            version: Optional version string.
+            filename: Model filename to check.
+
+        Returns:
+            True if the model exists.
+        """
+        if version:
+            object_key = f"{model_name}/{version}/{filename}"
+        else:
+            object_key = f"{model_name}/{filename}"
+
+        return self.object_exists(self.bucket_models, object_key)
+
+    def list_models(self, model_name: str | None = None) -> list[dict[str, Any]]:
+        """List ML models in the models bucket.
+
+        Args:
+            model_name: Optional model name to filter by (prefix).
+
+        Returns:
+            List of object metadata dictionaries.
+        """
+        prefix = f"{model_name}/" if model_name else ""
+        return self.list_objects(self.bucket_models, prefix=prefix)
 
     def upload_change_artifacts(
         self,

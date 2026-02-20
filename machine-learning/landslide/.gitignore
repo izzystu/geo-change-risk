@@ -1,0 +1,6 @@
+# Training artifacts
+runs/
+*.pth
+
+# Downloaded dataset
+data/

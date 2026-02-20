@@ -129,6 +129,15 @@ temp/
 api-output.txt
 
 # =============================================================================
+# Terraform
+# =============================================================================
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+.terraform.tfstate.lock.info
+
+# =============================================================================
 # Docker (local volumes are managed by docker-compose)
 # =============================================================================
 # Don't ignore docker-compose.yml or Dockerfiles

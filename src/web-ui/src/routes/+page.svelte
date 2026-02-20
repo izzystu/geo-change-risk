@@ -2,12 +2,22 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api';
 	import { areasOfInterest, selectedAoiId, selectedAoi, aoiLoading, aoiError } from '$lib/stores/aoi';
+	import { unacknowledgedCount } from '$lib/stores/processing';
+	import { llmAvailable } from '$lib/stores/query';
+	import { scheduleConfig } from '$lib/stores/scheduling';
 	import MapView from '$lib/components/MapView.svelte';
+	import CollapsibleSection from '$lib/components/CollapsibleSection.svelte';
 	import AoiSelector from '$lib/components/AoiSelector.svelte';
 	import LayerPanel from '$lib/components/LayerPanel.svelte';
+	import BasemapPanel from '$lib/components/BasemapPanel.svelte';
 	import ImageryPanel from '$lib/components/ImageryPanel.svelte';
 	import ProcessingPanel from '$lib/components/ProcessingPanel.svelte';
+	import QueryPanel from '$lib/components/QueryPanel.svelte';
 	import RiskEventsPanel from '$lib/components/RiskEventsPanel.svelte';
+	import SchedulingPanel from '$lib/components/SchedulingPanel.svelte';
+
+	$: scheduleStatus = !$scheduleConfig.processingSchedule ? 'Off'
+		: $scheduleConfig.processingEnabled ? 'Active' : 'Paused';
 
 	let apiStatus: 'loading' | 'connected' | 'error' = 'loading';
 	let mapViewComponent: MapView;
@@ -18,6 +28,10 @@
 		} else {
 			mapViewComponent?.clearHighlights();
 		}
+	}
+
+	function handleQueryResults(geoJson: GeoJSON.FeatureCollection | null) {
+		mapViewComponent?.showQueryResults(geoJson);
 	}
 
 	onMount(async () => {
@@ -82,25 +96,50 @@
 			</div>
 		{:else}
 			<div class="sidebar-content">
-				<section class="sidebar-section">
+				<CollapsibleSection title="Area of Interest" expanded={true}>
 					<AoiSelector />
-				</section>
+				</CollapsibleSection>
 
-				<section class="sidebar-section">
+				<CollapsibleSection title="Layers" expanded={true}>
 					<LayerPanel />
-				</section>
-
-				<section class="sidebar-section">
+					<div class="layers-divider"></div>
+					<BasemapPanel />
+					<div class="layers-divider"></div>
 					<ImageryPanel />
-				</section>
+				</CollapsibleSection>
 
-				<section class="sidebar-section">
+				<CollapsibleSection title="Processing Runs" expanded={true}>
 					<ProcessingPanel />
-				</section>
+				</CollapsibleSection>
 
-				<section class="sidebar-section">
+				<CollapsibleSection title="Natural Language Query" expanded={false}>
+					<svelte:fragment slot="badge">
+						{#if $llmAvailable === true}
+							<span class="llm-dot available" title="LLM service available"></span>
+						{:else if $llmAvailable === false}
+							<span class="llm-dot unavailable" title="LLM service unavailable"></span>
+						{/if}
+					</svelte:fragment>
+					<QueryPanel onQueryResults={handleQueryResults} />
+				</CollapsibleSection>
+
+				<CollapsibleSection title="Risk Events" expanded={true}>
+					<svelte:fragment slot="badge">
+						{#if $unacknowledgedCount > 0}
+							<span class="badge-pill">{$unacknowledgedCount}</span>
+						{/if}
+					</svelte:fragment>
 					<RiskEventsPanel onEventClick={handleRiskEventClick} />
-				</section>
+				</CollapsibleSection>
+
+				<CollapsibleSection title="Scheduling" expanded={false}>
+					<svelte:fragment slot="badge">
+						<span class="schedule-badge" class:active={scheduleStatus === 'Active'} class:paused={scheduleStatus === 'Paused'}>
+							{scheduleStatus}
+						</span>
+					</svelte:fragment>
+					<SchedulingPanel />
+				</CollapsibleSection>
 			</div>
 		{/if}
 
@@ -156,11 +195,60 @@
 	.sidebar-content {
 		flex: 1;
 		overflow-y: auto;
-		padding: 1rem;
+		padding: 0.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
 	}
 
-	.sidebar-section {
-		margin-bottom: 1.5rem;
+	.llm-dot {
+		width: 0.5rem;
+		height: 0.5rem;
+		border-radius: 50%;
+		display: inline-block;
+	}
+
+	.llm-dot.available {
+		background: var(--color-success, #22c55e);
+	}
+
+	.llm-dot.unavailable {
+		background: var(--color-danger, #ef4444);
+	}
+
+	.badge-pill {
+		font-size: 0.625rem;
+		padding: 0.0625rem 0.375rem;
+		background: var(--color-border);
+		color: var(--color-text-muted);
+		border-radius: 999px;
+		font-weight: 600;
+	}
+
+	.schedule-badge {
+		font-size: 0.5625rem;
+		font-weight: 600;
+		padding: 0.0625rem 0.375rem;
+		border-radius: var(--radius-sm);
+		text-transform: uppercase;
+		background: var(--color-bg);
+		color: var(--color-text-muted);
+	}
+
+	.schedule-badge.active {
+		background: #dcfce7;
+		color: #166534;
+	}
+
+	.schedule-badge.paused {
+		background: #fef3c7;
+		color: #92400e;
+	}
+
+	.layers-divider {
+		height: 1px;
+		background: var(--color-border);
+		margin: 0.5rem 0;
 	}
 
 	.sidebar-footer {

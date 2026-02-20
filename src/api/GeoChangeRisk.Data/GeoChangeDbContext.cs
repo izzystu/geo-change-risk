@@ -80,6 +80,9 @@ public class GeoChangeDbContext : DbContext
             // Scheduling fields
             entity.Property(e => e.ProcessingSchedule)
                 .HasMaxLength(50);
+
+            entity.Property(e => e.MaxCloudCover)
+                .HasDefaultValue(20.0);
         });
 
         // Configure Asset entity

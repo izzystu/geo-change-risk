@@ -1,5 +1,6 @@
 import { writable, derived } from 'svelte/store';
 import type { ProcessingRunSummary, RiskEventSummary, AssetGeoJSON } from '$lib/services/api';
+import { queryResultEventIds } from '$lib/stores/query';
 
 // Processing runs for the current AOI
 export const processingRuns = writable<ProcessingRunSummary[]>([]);
@@ -40,9 +41,10 @@ export const assetTypes = derived(riskEvents, ($events) => {
 
 // Derived: filtered risk events
 export const filteredRiskEvents = derived(
-    [riskEvents, riskEventFilters],
-    ([$events, $filters]) => {
+    [riskEvents, riskEventFilters, queryResultEventIds],
+    ([$events, $filters, $queryIds]) => {
         return $events.filter(event => {
+            if ($queryIds !== null && !$queryIds.has(event.riskEventId)) return false;
             if (event.isDismissed) return false;
             if (event.riskScore < $filters.minScore) return false;
             if ($filters.riskLevel !== null && getRiskLevelValue(event.riskLevelName) !== $filters.riskLevel) return false;

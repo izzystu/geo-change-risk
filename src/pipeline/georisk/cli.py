@@ -2,7 +2,7 @@
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +19,20 @@ from georisk.stac.search import search_scenes, find_scene_pair
 from georisk.storage.minio import MinioStorage
 
 # Configure structlog for CLI output
+import logging
+
+logging.basicConfig(format="%(message)s", level=logging.INFO)
+
 structlog.configure(
     processors=[
+        structlog.stdlib.filter_by_level,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.dev.ConsoleRenderer(colors=True),
     ],
     wrapper_class=structlog.stdlib.BoundLogger,
     context_class=dict,
-    logger_factory=structlog.PrintLoggerFactory(),
+    logger_factory=structlog.stdlib.LoggerFactory(),
 )
 
 logger = structlog.get_logger()
@@ -101,6 +106,120 @@ def search(aoi_id: str, date_range: str, max_cloud: float, limit: int, output: P
 
 @cli.command()
 @click.option("--aoi-id", required=True, help="Area of Interest ID")
+@click.option("--max-cloud", type=float, default=None, help="Maximum cloud cover percentage (overrides AOI setting)")
+@click.option("--since", type=click.DateTime(formats=["%Y-%m-%d"]), default=None, help="Search for imagery after this date (YYYY-MM-DD)")
+@click.option("--json", "output_json", is_flag=True, help="Output result as JSON")
+@click.pass_context
+def check(ctx, aoi_id: str, max_cloud: float | None, since: datetime | None, output_json: bool) -> None:
+    """Check for new satellite imagery availability for an AOI.
+
+    Searches STAC for scenes newer than the last completed processing run.
+    Exit codes: 0 = new data found, 1 = no new data, 2 = error.
+    """
+    from datetime import timedelta
+
+    logger = structlog.get_logger()
+
+    try:
+        with ApiClient() as api:
+            # 1. Get AOI details
+            aoi = api.get_aoi(aoi_id)
+            bbox = tuple(aoi["boundingBox"])
+            cloud_threshold = max_cloud if max_cloud is not None else aoi.get("maxCloudCover", 20.0)
+
+            # 2. Determine "since" date
+            last_run = None
+            if since:
+                since_date = since.strftime("%Y-%m-%d")
+            else:
+                last_run = api.get_latest_completed_run(aoi_id)
+                if last_run and last_run.get("afterDate"):
+                    # Start searching the day AFTER the last run's after date
+                    # to avoid re-finding the same scene on that date
+                    last_after = datetime.fromisoformat(last_run["afterDate"].replace("Z", "+00:00"))
+                    since_date = (last_after + timedelta(days=1)).strftime("%Y-%m-%d")
+                else:
+                    since_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+            if not output_json:
+                click.echo(f"Checking for new imagery since {since_date} (max cloud: {cloud_threshold}%)")
+
+            # 3. Search STAC for new scenes
+            scenes = search_scenes(
+                bbox=bbox,
+                start_date=since_date,
+                end_date=today,
+                max_cloud_cover=cloud_threshold,
+                max_items=10,
+            )
+
+            # 4. Filter out scenes already processed in the last run
+            if last_run:
+                processed_ids = set()
+                if last_run.get("afterSceneId"):
+                    processed_ids.add(last_run["afterSceneId"])
+                if last_run.get("beforeSceneId"):
+                    processed_ids.add(last_run["beforeSceneId"])
+                if processed_ids:
+                    scenes = [s for s in scenes if s.scene_id not in processed_ids]
+
+            if not scenes:
+                result = {"new_data": False, "since_date": since_date, "message": "No new imagery found"}
+                if output_json:
+                    click.echo(json.dumps(result, indent=2))
+                else:
+                    click.echo("No new imagery found.")
+                sys.exit(1)
+
+            # 5. Pick best scene (scenes are sorted by date descending)
+            best = scenes[0]
+
+            # 6. Determine recommended "before" date
+            if last_run and last_run.get("afterDate"):
+                recommended_before = datetime.fromisoformat(last_run["afterDate"].replace("Z", "+00:00")).strftime("%Y-%m-%d")
+            else:
+                lookback = aoi.get("defaultLookbackDays", 90)
+                recommended_before = (best.datetime - timedelta(days=lookback)).strftime("%Y-%m-%d")
+
+            recommended_after = best.datetime.strftime("%Y-%m-%d")
+
+            result = {
+                "new_data": True,
+                "scene_id": best.scene_id,
+                "scene_date": recommended_after,
+                "cloud_cover": best.cloud_cover,
+                "recommended_before_date": recommended_before,
+                "recommended_after_date": recommended_after,
+            }
+
+            if output_json:
+                click.echo(json.dumps(result, indent=2))
+            else:
+                click.echo(f"\nNew imagery available!")
+                click.echo(f"  Scene: {best.scene_id}")
+                click.echo(f"  Date:  {recommended_after}")
+                click.echo(f"  Cloud: {best.cloud_cover:.1f}%")
+                click.echo(f"\nRecommended processing dates:")
+                click.echo(f"  Before: {recommended_before}")
+                click.echo(f"  After:  {recommended_after}")
+
+            sys.exit(0)
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        if output_json:
+            click.echo(json.dumps({"new_data": False, "error": str(e)}, indent=2))
+        else:
+            click.echo(f"Error: {e}", err=True)
+        logger.exception("check_command_failed")
+        sys.exit(2)
+
+
+@cli.command()
+@click.option("--aoi-id", required=True, help="Area of Interest ID")
 @click.option("--before", required=True, help="Before date (YYYY-MM-DD)")
 @click.option("--after", required=True, help="After date (YYYY-MM-DD)")
 @click.option("--run-id", help="Existing processing run ID (if not provided, creates new run)")
@@ -112,6 +231,7 @@ def search(aoi_id: str, date_range: str, max_cloud: float, limit: int, output: P
               help="DEM source for terrain analysis (3dep=USGS 3DEP, local=local file, none=disable)")
 @click.option("--skip-terrain", is_flag=True, help="Skip terrain analysis")
 @click.option("--skip-landcover", is_flag=True, help="Skip ML land cover classification")
+@click.option("--skip-landslide", is_flag=True, help="Skip ML landslide detection")
 @click.option("--dry-run", is_flag=True, help="Simulate without API updates")
 @click.pass_context
 def process(
@@ -127,6 +247,7 @@ def process(
     dem_source: str,
     skip_terrain: bool,
     skip_landcover: bool,
+    skip_landslide: bool,
     dry_run: bool,
 ) -> None:
     """Process imagery and detect changes for an AOI."""
@@ -268,6 +389,9 @@ def process(
             elif skip_terrain:
                 click.echo("\n3b. Terrain analysis skipped (--skip-terrain)")
 
+            # Initialize scene_bands so it can be reused by both land cover and landslide blocks
+            scene_bands = None
+
             # Land cover classification (if enabled and ML deps available)
             if not skip_landcover and changes.polygons:
                 click.echo("\n3c. Classifying land cover...")
@@ -320,6 +444,60 @@ def process(
                     click.echo(f"  Warning: Land cover classification failed ({e}), continuing without")
             elif skip_landcover:
                 click.echo("\n3c. Land cover classification skipped (--skip-landcover)")
+
+            # Landslide detection (if enabled, ML deps available, and terrain data exists)
+            if not skip_landslide and dem_data is not None and changes.polygons:
+                click.echo("\n3d. Running landslide detection...")
+                try:
+                    from georisk.raster.landslide import (
+                        is_landslide_available,
+                        load_landslide_model,
+                        classify_polygon_landslide,
+                        LANDSLIDE_SENTINEL_BANDS,
+                    )
+
+                    if is_landslide_available():
+                        ls_model = load_landslide_model()
+
+                        # Load 12-band scene for landslide model (excludes B8A,
+                        # different from landcover's 13 bands)
+                        from georisk.raster.landcover import load_scene_bands
+                        ls_scene_bands = load_scene_bands(
+                            before_scene, bbox, bands=LANDSLIDE_SENTINEL_BANDS,
+                        )
+
+                        if ls_scene_bands is not None:
+                            candidates = 0
+                            landslide_count = 0
+                            for change in changes.polygons:
+                                if (change.slope_degree_mean or 0) >= 10.0:
+                                    candidates += 1
+                                    result = classify_polygon_landslide(
+                                        ls_scene_bands, dem_data, change.geometry, ls_model,
+                                    )
+                                    if result is not None and result.is_landslide:
+                                        change.change_type = "LandslideDebris"
+                                        change.ml_confidence = result.landslide_probability
+                                        change.ml_model_version = result.model_version
+                                        landslide_count += 1
+                            click.echo(
+                                f"  Analyzed {candidates} steep-terrain polygons, "
+                                f"classified {landslide_count} as landslides"
+                            )
+                        else:
+                            click.echo("  Warning: Could not load scene bands, skipping")
+                    else:
+                        click.echo("  ML dependencies not installed (pip install -e '.[ml]'), skipping")
+                except FileNotFoundError as e:
+                    click.echo(f"  Warning: {e}")
+                except ImportError as e:
+                    click.echo(f"  Warning: Landslide module not available ({e}), skipping")
+                except Exception as e:
+                    click.echo(f"  Warning: Landslide detection failed ({e}), continuing without")
+            elif skip_landslide:
+                click.echo("\n3d. Landslide detection skipped (--skip-landslide)")
+            elif dem_data is None and not skip_landslide:
+                click.echo("\n3d. Landslide detection skipped (no terrain data)")
 
             # Track created polygon IDs for risk event mapping
             created_polygon_ids: list[str] = []
@@ -397,13 +575,19 @@ def process(
 
             # Complete processing
             if run_id:
+                # Sanitize stats: replace NaN/Inf with None for JSON compliance
+                import math
+                clean_stats = {
+                    k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
+                    for k, v in changes.stats.items()
+                }
                 api.update_processing_run(
                     run_id,
                     status=ProcessingStatus.COMPLETED,
                     metadata={
                         "change_polygons": len(changes.polygons),
                         "risk_events": len(risk_events),
-                        "stats": changes.stats,
+                        "stats": clean_stats,
                         "terrain_analysis": dem_data is not None,
                         "dem_source": dem_source if dem_data is not None else None,
                         "land_cover_classification": any(
@@ -522,6 +706,67 @@ def health() -> None:
             for aoi in aois:
                 click.echo(f"  - {aoi['aoiId']}: {aoi['name']}")
 
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.group()
+def model() -> None:
+    """Manage ML models in object storage (S3/MinIO)."""
+    pass
+
+
+@model.command("upload")
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.option("--name", default="landslide", help="Model name (storage prefix)")
+@click.option("--version", default=None, help="Optional version string (e.g. v1)")
+def model_upload(path: Path, name: str, version: str | None) -> None:
+    """Upload a model file to object storage."""
+    try:
+        storage = MinioStorage()
+        result = storage.upload_model(path, model_name=name, version=version)
+        click.echo(f"Uploaded {path.name} -> {result}")
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@model.command("download")
+@click.option("--name", default="landslide", help="Model name (storage prefix)")
+@click.option("--version", default=None, help="Optional version string")
+@click.option("--output", "-o", type=click.Path(path_type=Path), default=None,
+              help="Output path (default: ~/.cache/georisk/models/landslide_model.pth)")
+def model_download(name: str, version: str | None, output: Path | None) -> None:
+    """Download a model file from object storage."""
+    from georisk.raster.landslide import DEFAULT_MODEL_PATH
+
+    try:
+        target = output or DEFAULT_MODEL_PATH
+        storage = MinioStorage()
+        storage.download_model(target, model_name=name, version=version)
+        click.echo(f"Downloaded to {target}")
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
+@model.command("list")
+@click.option("--name", default=None, help="Filter by model name")
+def model_list(name: str | None) -> None:
+    """List models in object storage."""
+    try:
+        storage = MinioStorage()
+        objects = storage.list_models(model_name=name)
+
+        if not objects:
+            click.echo("No models found in storage.")
+            return
+
+        click.echo(f"Found {len(objects)} model file(s):")
+        for obj in objects:
+            size_mb = obj["size"] / (1024 * 1024)
+            click.echo(f"  {obj['key']}  ({size_mb:.1f} MB, {obj['last_modified']})")
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

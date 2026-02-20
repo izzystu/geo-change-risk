@@ -30,7 +30,8 @@ public class AreasOfInterestControllerTests : IDisposable
         _controller = new AreasOfInterestController(
             _context,
             Mock.Of<ILogger<AreasOfInterestController>>(),
-            _geometryServiceMock.Object);
+            _geometryServiceMock.Object,
+            Mock.Of<ISchedulerService>());
     }
 
     [Fact]
