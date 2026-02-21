@@ -1,0 +1,47 @@
+name: CI — Pipeline (Python)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/pipeline/**"
+      - ".github/workflows/ci-pipeline.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/pipeline/**"
+      - ".github/workflows/ci-pipeline.yml"
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: src/pipeline/pyproject.toml
+
+      - name: Install GDAL system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgdal-dev gdal-bin
+
+      - name: Install package with dev dependencies
+        run: pip install -e ".[dev]"
+        working-directory: src/pipeline
+
+      - name: Lint with ruff
+        run: ruff check .
+        working-directory: src/pipeline
+
+      - name: Type check with mypy (informational)
+        run: mypy georisk/ --ignore-missing-imports
+        working-directory: src/pipeline
+        continue-on-error: true
+
+      - name: Run tests
+        run: pytest --cov=georisk --cov-report=term-missing
+        working-directory: src/pipeline

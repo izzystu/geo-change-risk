@@ -7,8 +7,8 @@ from typing import Any
 import structlog
 import yaml
 
-from georisk.risk.proximity import ProximityResult
 from georisk.raster.change import ChangePolygon
+from georisk.risk.proximity import ProximityResult
 
 logger = structlog.get_logger()
 
@@ -247,22 +247,41 @@ class RiskScorer:
         is_landslide = change.change_type == "LandslideDebris"
         lc_multiplier = self._get_land_cover_multiplier(change.land_cover_class)
         if is_landslide and lc_multiplier < 1.0:
+            lc_reason = (
+                f"LANDCOVER_{change.land_cover_class.upper()}_SKIP"
+                if change.land_cover_class
+                else "LANDCOVER_UNKNOWN"
+            )
+            lc_class = change.land_cover_class or 'unknown'
             lc_factor = ScoringFactor(
                 name="Land Cover",
                 points=0,
                 max_points=0,
-                reason_code=f"LANDCOVER_{change.land_cover_class.upper()}_SKIP" if change.land_cover_class else "LANDCOVER_UNKNOWN",
-                details=f"Land cover: {change.land_cover_class or 'unknown'} (multiplier: {lc_multiplier:.2f}x, skipped for confirmed landslide)",
+                reason_code=lc_reason,
+                details=(
+                    f"Land cover: {lc_class} "
+                    f"(multiplier: {lc_multiplier:.2f}x, "
+                    "skipped for confirmed landslide)"
+                ),
             )
             factors.append(lc_factor)
         elif lc_multiplier != 1.0:
             lc_delta = int(total_score * lc_multiplier) - total_score
+            lc_reason2 = (
+                f"LANDCOVER_{change.land_cover_class.upper()}"
+                if change.land_cover_class
+                else "LANDCOVER_UNKNOWN"
+            )
+            lc_class2 = change.land_cover_class or 'unknown'
             lc_factor = ScoringFactor(
                 name="Land Cover",
                 points=lc_delta,
                 max_points=0,
-                reason_code=f"LANDCOVER_{change.land_cover_class.upper()}" if change.land_cover_class else "LANDCOVER_UNKNOWN",
-                details=f"Land cover: {change.land_cover_class or 'unknown'} (multiplier: {lc_multiplier:.2f}x)",
+                reason_code=lc_reason2,
+                details=(
+                    f"Land cover: {lc_class2} "
+                    f"(multiplier: {lc_multiplier:.2f}x)"
+                ),
             )
             factors.append(lc_factor)
             total_score = int(total_score * lc_multiplier)
@@ -629,12 +648,21 @@ class RiskScorer:
         elif elevation_diff_m is not None and elevation_diff_m < -5.0:
             direction_desc = f"downslope ({abs(elevation_diff_m):.0f}m lower)"
 
+        is_upslope = elevation_diff_m and elevation_diff_m > 5.0
+        ls_reason = (
+            "LANDSLIDE_UPSLOPE" if is_upslope
+            else "LANDSLIDE_DETECTED"
+        )
         return ScoringFactor(
             name="Landslide Detection",
-            points=0,  # Points will be computed by the caller as a multiplicative delta
+            points=0,
             max_points=0,
-            reason_code="LANDSLIDE_UPSLOPE" if elevation_diff_m and elevation_diff_m > 5.0 else "LANDSLIDE_DETECTED",
-            details=f"Landslide on {slope:.1f}\u00b0 slope, {direction_desc} (multiplier: {multiplier:.2f}x)",
+            reason_code=ls_reason,
+            details=(
+                f"Landslide on {slope:.1f}\u00b0 slope, "
+                f"{direction_desc} "
+                f"(multiplier: {multiplier:.2f}x)"
+            ),
         )
 
     def _aspect_to_compass(self, aspect: float) -> str:

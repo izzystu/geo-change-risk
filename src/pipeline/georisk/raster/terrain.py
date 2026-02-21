@@ -12,7 +12,7 @@ import xarray as xr
 from pyproj import CRS, Transformer
 from rasterio import features as rio_features
 from scipy import ndimage
-from shapely.geometry import Point, Polygon, shape
+from shapely.geometry import Point, Polygon
 from shapely.ops import transform as shapely_transform
 
 from georisk.config import get_config
@@ -436,8 +436,12 @@ def extract_terrain_stats_for_polygon(
         slope_values = slope_array[mask]
         slope_values = slope_values[~np.isnan(slope_values)]
 
-        stats["slope_degree_mean"] = float(np.mean(slope_values)) if len(slope_values) > 0 else 0.0
-        stats["slope_degree_max"] = float(np.max(slope_values)) if len(slope_values) > 0 else 0.0
+        stats["slope_degree_mean"] = (
+            float(np.mean(slope_values)) if len(slope_values) > 0 else 0.0
+        )
+        stats["slope_degree_max"] = (
+            float(np.max(slope_values)) if len(slope_values) > 0 else 0.0
+        )
 
     if dem.aspect is not None:
         aspect_array = dem.aspect.values

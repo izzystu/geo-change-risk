@@ -19,7 +19,6 @@ from click.testing import CliRunner
 from georisk.cli import cli
 from georisk.stac.search import SceneInfo
 
-
 # ---------------------------------------------------------------------------
 # Helpers / Fixtures
 # ---------------------------------------------------------------------------
@@ -75,9 +74,9 @@ def mock_api():
     The instance's context-manager methods are wired up so
     ``with ApiClient() as api:`` works.
     """
-    with patch("georisk.cli.ApiClient") as MockCls:
+    with patch("georisk.cli.ApiClient") as mock_cls:
         instance = MagicMock()
-        MockCls.return_value = instance
+        mock_cls.return_value = instance
         instance.__enter__ = MagicMock(return_value=instance)
         instance.__exit__ = MagicMock(return_value=False)
 

@@ -1,7 +1,7 @@
 """Shared test fixtures for georisk pipeline tests."""
 
 import pytest
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Point, Polygon
 
 from georisk.raster.change import ChangePolygon
 from georisk.risk.proximity import ProximityResult

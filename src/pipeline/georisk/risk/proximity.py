@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from typing import Any
 
-import geopandas as gpd
 import structlog
 from pyproj import CRS, Transformer
 from shapely.geometry import Polygon, shape
@@ -91,10 +90,14 @@ def find_nearby_assets(
     terrain_module = None
     if dem_data is not None:
         try:
-            from georisk.raster.terrain import sample_terrain_at_point, calculate_directional_metrics
+            from georisk.raster.terrain import (  # noqa: F811
+                calculate_directional_metrics,
+            )
             terrain_module = True
         except ImportError:
-            logger.warning("Terrain module not available for directional analysis")
+            logger.warning(
+                "Terrain module not available for directional analysis"
+            )
             terrain_module = None
 
     for asset in assets:
@@ -146,11 +149,18 @@ def find_nearby_assets(
                 slope_toward_asset_deg = None
 
                 if terrain_module and dem_data is not None:
-                    from georisk.raster.terrain import sample_terrain_at_point, calculate_directional_metrics
                     from shapely.geometry import Point
 
+                    from georisk.raster.terrain import (
+                        calculate_directional_metrics,
+                    )
+
                     # Get asset centroid for point-based terrain sampling
-                    asset_point = asset_geom.centroid if hasattr(asset_geom, 'centroid') else Point(asset_geom.coords[0])
+                    asset_point = (
+                        asset_geom.centroid
+                        if hasattr(asset_geom, 'centroid')
+                        else Point(asset_geom.coords[0])
+                    )
                     change_point = centroid
 
                     # Calculate directional metrics
@@ -214,7 +224,11 @@ def batch_proximity_analysis(
     results = {}
 
     for idx, polygon in enumerate(change_polygons):
-        change_elev = change_elevations[idx] if change_elevations and idx < len(change_elevations) else None
+        change_elev = (
+            change_elevations[idx]
+            if change_elevations and idx < len(change_elevations)
+            else None
+        )
         nearby = find_nearby_assets(polygon, assets, max_distance_m, dem_data, change_elev)
         if nearby:
             results[idx] = nearby

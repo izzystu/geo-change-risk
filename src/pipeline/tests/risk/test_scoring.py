@@ -1,12 +1,11 @@
 """Tests for the risk scoring module."""
 
 import pytest
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Point, Polygon
 
 from georisk.raster.change import ChangePolygon
 from georisk.risk.proximity import ProximityResult
-from georisk.risk.scoring import RiskScorer, RiskScore, ScoringFactor
-
+from georisk.risk.scoring import RiskScore, RiskScorer, ScoringFactor
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -566,7 +565,10 @@ class TestCriticalityMultiplier:
         low_crit = _make_proximity(criticality=0, criticality_name="Low", elevation_diff_m=None)
         med_crit = _make_proximity(criticality=1, criticality_name="Medium", elevation_diff_m=None)
         high_crit = _make_proximity(criticality=2, criticality_name="High", elevation_diff_m=None)
-        crit_crit = _make_proximity(criticality=3, criticality_name="Critical", elevation_diff_m=None)
+        crit_crit = _make_proximity(
+            criticality=3, criticality_name="Critical",
+            elevation_diff_m=None,
+        )
 
         score_low = scorer.calculate_risk_score(change, low_crit).score
         score_med = scorer.calculate_risk_score(change, med_crit).score

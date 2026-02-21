@@ -5,7 +5,6 @@ without requiring PyTorch or TorchGeo to be installed.
 """
 
 import numpy as np
-import pytest
 
 from georisk.raster.landcover import (
     EUROSAT_BANDS,
@@ -17,7 +16,6 @@ from georisk.raster.landcover import (
     _normalize_patch,
     is_landcover_available,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constants validation

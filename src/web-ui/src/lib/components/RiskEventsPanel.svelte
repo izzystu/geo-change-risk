@@ -11,7 +11,7 @@
 		assetTypes
 	} from '$lib/stores/processing';
 	import { queryResultEventIds } from '$lib/stores/query';
-	import { api, RiskLevelColors, type RiskEvent } from '$lib/services/api';
+	import { api, RiskLevelColors, type RiskEvent, type RiskEventSummary } from '$lib/services/api';
 	import { parseFactors, generateSummary, generateSuggestedAction, getFactorBarColor } from '$lib/utils/riskSummary';
 	import TakeActionDialog from './TakeActionDialog.svelte';
 
@@ -23,7 +23,7 @@
 
 	// Take Action dialog state
 	let actionDialogOpen = false;
-	let actionDialogEvent: RiskEvent | null = null;
+	let actionDialogEvent: RiskEventSummary | null = null;
 	let actionDialogDetail: RiskEvent | null = null;
 
 	const riskLevels = [
@@ -126,7 +126,7 @@
 		}
 	}
 
-	async function handleTakeAction(evt: Event, riskEvent: RiskEvent) {
+	async function handleTakeAction(evt: Event, riskEvent: RiskEventSummary) {
 		evt.stopPropagation();
 		actionDialogEvent = riskEvent;
 		actionDialogDetail = null;

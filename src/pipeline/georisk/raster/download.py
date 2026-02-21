@@ -3,7 +3,6 @@
 import json
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import rasterio
@@ -12,7 +11,6 @@ import structlog
 import xarray as xr
 from pyproj import Transformer
 from rasterio.mask import mask
-from rasterio.enums import Resampling
 from shapely.geometry import box, mapping
 
 from georisk.stac.search import SceneInfo
@@ -77,7 +75,8 @@ def create_rgb_composite(
     green = load_band_from_url(scene.get_band_url("B03"), bbox)
     blue = load_band_from_url(scene.get_band_url("B02"), bbox)
 
-    # Calculate actual WGS84 bounds from the clipped raster (may differ from input bbox due to UTM projection)
+    # Calculate actual WGS84 bounds from the clipped raster
+    # (may differ from input bbox due to UTM projection)
     wgs84_bounds = _get_wgs84_bounds(red)
     logger.info(
         "Calculated actual WGS84 bounds",
@@ -281,7 +280,10 @@ def load_band(path: Path) -> xr.DataArray:
     return da
 
 
-def load_band_from_url(url: str, bbox: tuple[float, float, float, float] | None = None) -> xr.DataArray:
+def load_band_from_url(
+    url: str,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> xr.DataArray:
     """Load a raster band directly from a URL, optionally clipping to bbox.
 
     Args:

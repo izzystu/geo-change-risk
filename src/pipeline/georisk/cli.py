@@ -1,10 +1,12 @@
 """Command-line interface for the GeoRisk pipeline."""
 
 import json
+
+# Configure structlog for CLI output
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import click
 import structlog
@@ -15,11 +17,8 @@ from georisk.raster.change import detect_changes
 from georisk.raster.ndvi import calculate_ndvi_from_scene
 from georisk.risk.proximity import find_nearby_assets
 from georisk.risk.scoring import RiskScorer
-from georisk.stac.search import search_scenes, find_scene_pair
+from georisk.stac.search import find_scene_pair, search_scenes
 from georisk.storage.minio import MinioStorage
-
-# Configure structlog for CLI output
-import logging
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
 
@@ -39,7 +38,11 @@ logger = structlog.get_logger()
 
 
 @click.group()
-@click.option("--config-dir", type=click.Path(exists=True, path_type=Path), help="Configuration directory")
+@click.option(
+    "--config-dir",
+    type=click.Path(exists=True, path_type=Path),
+    help="Configuration directory",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
 @click.pass_context
 def cli(ctx: click.Context, config_dir: Path | None, verbose: bool) -> None:
@@ -82,7 +85,11 @@ def search(aoi_id: str, date_range: str, max_cloud: float, limit: int, output: P
 
         click.echo(f"\nFound {len(scenes)} scenes:")
         for scene in scenes:
-            click.echo(f"  {scene.scene_id} | {scene.datetime.strftime('%Y-%m-%d')} | {scene.cloud_cover:.1f}% cloud")
+            click.echo(
+                f"  {scene.scene_id} | "
+                f"{scene.datetime.strftime('%Y-%m-%d')} | "
+                f"{scene.cloud_cover:.1f}% cloud"
+            )
 
         # Save to file if requested
         if output:
@@ -106,11 +113,27 @@ def search(aoi_id: str, date_range: str, max_cloud: float, limit: int, output: P
 
 @cli.command()
 @click.option("--aoi-id", required=True, help="Area of Interest ID")
-@click.option("--max-cloud", type=float, default=None, help="Maximum cloud cover percentage (overrides AOI setting)")
-@click.option("--since", type=click.DateTime(formats=["%Y-%m-%d"]), default=None, help="Search for imagery after this date (YYYY-MM-DD)")
+@click.option(
+    "--max-cloud",
+    type=float,
+    default=None,
+    help="Maximum cloud cover percentage (overrides AOI setting)",
+)
+@click.option(
+    "--since",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Search for imagery after this date (YYYY-MM-DD)",
+)
 @click.option("--json", "output_json", is_flag=True, help="Output result as JSON")
 @click.pass_context
-def check(ctx, aoi_id: str, max_cloud: float | None, since: datetime | None, output_json: bool) -> None:
+def check(
+    ctx,
+    aoi_id: str,
+    max_cloud: float | None,
+    since: datetime | None,
+    output_json: bool,
+) -> None:
     """Check for new satellite imagery availability for an AOI.
 
     Searches STAC for scenes newer than the last completed processing run.
@@ -136,15 +159,20 @@ def check(ctx, aoi_id: str, max_cloud: float | None, since: datetime | None, out
                 if last_run and last_run.get("afterDate"):
                     # Start searching the day AFTER the last run's after date
                     # to avoid re-finding the same scene on that date
-                    last_after = datetime.fromisoformat(last_run["afterDate"].replace("Z", "+00:00"))
+                    after_str = last_run["afterDate"].replace("Z", "+00:00")
+                    last_after = datetime.fromisoformat(after_str)
                     since_date = (last_after + timedelta(days=1)).strftime("%Y-%m-%d")
                 else:
-                    since_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+                    fallback = datetime.now(timezone.utc) - timedelta(days=30)
+                    since_date = fallback.strftime("%Y-%m-%d")
 
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
             if not output_json:
-                click.echo(f"Checking for new imagery since {since_date} (max cloud: {cloud_threshold}%)")
+                click.echo(
+                    f"Checking for new imagery since {since_date} "
+                    f"(max cloud: {cloud_threshold}%)"
+                )
 
             # 3. Search STAC for new scenes
             scenes = search_scenes(
@@ -166,7 +194,11 @@ def check(ctx, aoi_id: str, max_cloud: float | None, since: datetime | None, out
                     scenes = [s for s in scenes if s.scene_id not in processed_ids]
 
             if not scenes:
-                result = {"new_data": False, "since_date": since_date, "message": "No new imagery found"}
+                result = {
+                    "new_data": False,
+                    "since_date": since_date,
+                    "message": "No new imagery found",
+                }
                 if output_json:
                     click.echo(json.dumps(result, indent=2))
                 else:
@@ -178,7 +210,10 @@ def check(ctx, aoi_id: str, max_cloud: float | None, since: datetime | None, out
 
             # 6. Determine recommended "before" date
             if last_run and last_run.get("afterDate"):
-                recommended_before = datetime.fromisoformat(last_run["afterDate"].replace("Z", "+00:00")).strftime("%Y-%m-%d")
+                after_iso = last_run["afterDate"].replace("Z", "+00:00")
+                recommended_before = datetime.fromisoformat(
+                    after_iso
+                ).strftime("%Y-%m-%d")
             else:
                 lookback = aoi.get("defaultLookbackDays", 90)
                 recommended_before = (best.datetime - timedelta(days=lookback)).strftime("%Y-%m-%d")
@@ -197,11 +232,11 @@ def check(ctx, aoi_id: str, max_cloud: float | None, since: datetime | None, out
             if output_json:
                 click.echo(json.dumps(result, indent=2))
             else:
-                click.echo(f"\nNew imagery available!")
+                click.echo("\nNew imagery available!")
                 click.echo(f"  Scene: {best.scene_id}")
                 click.echo(f"  Date:  {recommended_after}")
                 click.echo(f"  Cloud: {best.cloud_cover:.1f}%")
-                click.echo(f"\nRecommended processing dates:")
+                click.echo("\nRecommended processing dates:")
                 click.echo(f"  Before: {recommended_before}")
                 click.echo(f"  After:  {recommended_after}")
 
@@ -227,8 +262,12 @@ def check(ctx, aoi_id: str, max_cloud: float | None, since: datetime | None, out
 @click.option("--threshold", type=float, help="NDVI change threshold (e.g., -0.2)")
 @click.option("--min-area", type=float, help="Minimum change area in m\u00b2")
 @click.option("--max-distance", type=float, help="Max proximity distance in meters (default: 1000)")
-@click.option("--dem-source", type=click.Choice(["3dep", "local", "none"]), default="3dep",
-              help="DEM source for terrain analysis (3dep=USGS 3DEP, local=local file, none=disable)")
+@click.option(
+    "--dem-source",
+    type=click.Choice(["3dep", "local", "none"]),
+    default="3dep",
+    help="DEM source for terrain analysis (3dep=USGS 3DEP, local=local file, none=disable)",
+)
 @click.option("--skip-terrain", is_flag=True, help="Skip terrain analysis")
 @click.option("--skip-landcover", is_flag=True, help="Skip ML land cover classification")
 @click.option("--skip-landslide", is_flag=True, help="Skip ML landslide detection")
@@ -251,7 +290,7 @@ def process(
     dry_run: bool,
 ) -> None:
     """Process imagery and detect changes for an AOI."""
-    verbose = ctx.obj.get("verbose", False)
+    ctx.obj.get("verbose", False)
 
     try:
         with ApiClient() as api:
@@ -278,12 +317,18 @@ def process(
             if not before_scene or not after_scene:
                 error_msg = "Could not find suitable imagery scenes"
                 if run_id:
-                    api.update_processing_run(run_id, status=ProcessingStatus.FAILED, error_message=error_msg)
+                    api.update_processing_run(
+                        run_id,
+                        status=ProcessingStatus.FAILED,
+                        error_message=error_msg,
+                    )
                 click.echo(f"Error: {error_msg}", err=True)
                 sys.exit(1)
 
-            click.echo(f"  Before: {before_scene.scene_id} ({before_scene.datetime.strftime('%Y-%m-%d')})")
-            click.echo(f"  After:  {after_scene.scene_id} ({after_scene.datetime.strftime('%Y-%m-%d')})")
+            before_dt = before_scene.datetime.strftime('%Y-%m-%d')
+            after_dt = after_scene.datetime.strftime('%Y-%m-%d')
+            click.echo(f"  Before: {before_scene.scene_id} ({before_dt})")
+            click.echo(f"  After:  {after_scene.scene_id} ({after_dt})")
 
             if run_id:
                 api.update_processing_run(
@@ -295,8 +340,9 @@ def process(
             # Create and upload RGB composites for visualization
             if not dry_run:
                 click.echo("\n1b. Creating RGB imagery for visualization...")
-                from georisk.raster.download import create_rgb_composite
                 import tempfile
+
+                from georisk.raster.download import create_rgb_composite
 
                 with tempfile.TemporaryDirectory(prefix="georisk_rgb_") as temp_dir:
                     temp_path = Path(temp_dir)
@@ -304,26 +350,38 @@ def process(
 
                     # Before scene RGB
                     before_rgb_path = temp_path / f"{before_scene.scene_id}_rgb.tif"
-                    before_tif, before_png, before_bounds = create_rgb_composite(before_scene, bbox, before_rgb_path)
+                    before_tif, before_png, before_bounds = (
+                        create_rgb_composite(before_scene, bbox, before_rgb_path)
+                    )
                     storage.upload_imagery(before_tif, aoi_id, before_scene.scene_id, "rgb.tif")
                     if before_png:
                         storage.upload_imagery(before_png, aoi_id, before_scene.scene_id, "rgb.png")
                         # Upload bounds sidecar file for proper georeferencing
                         bounds_file = before_rgb_path.with_suffix('.bounds.json')
                         if bounds_file.exists():
-                            storage.upload_imagery(bounds_file, aoi_id, before_scene.scene_id, "rgb.bounds.json")
+                            storage.upload_imagery(
+                                bounds_file, aoi_id,
+                                before_scene.scene_id,
+                                "rgb.bounds.json",
+                            )
                     click.echo(f"  Uploaded before imagery: {before_scene.scene_id}")
 
                     # After scene RGB
                     after_rgb_path = temp_path / f"{after_scene.scene_id}_rgb.tif"
-                    after_tif, after_png, after_bounds = create_rgb_composite(after_scene, bbox, after_rgb_path)
+                    after_tif, after_png, after_bounds = (
+                        create_rgb_composite(after_scene, bbox, after_rgb_path)
+                    )
                     storage.upload_imagery(after_tif, aoi_id, after_scene.scene_id, "rgb.tif")
                     if after_png:
                         storage.upload_imagery(after_png, aoi_id, after_scene.scene_id, "rgb.png")
                         # Upload bounds sidecar file for proper georeferencing
                         bounds_file = after_rgb_path.with_suffix('.bounds.json')
                         if bounds_file.exists():
-                            storage.upload_imagery(bounds_file, aoi_id, after_scene.scene_id, "rgb.bounds.json")
+                            storage.upload_imagery(
+                                bounds_file, aoi_id,
+                                after_scene.scene_id,
+                                "rgb.bounds.json",
+                            )
                     click.echo(f"  Uploaded after imagery: {after_scene.scene_id}")
 
             # Calculate NDVI
@@ -358,9 +416,9 @@ def process(
                 click.echo("\n3b. Analyzing terrain...")
                 try:
                     from georisk.raster.terrain import (
-                        load_dem_for_bbox,
                         calculate_slope_aspect,
                         extract_terrain_stats_for_polygon,
+                        load_dem_for_bbox,
                     )
 
                     dem_data = load_dem_for_bbox(bbox, dem_source=dem_source)
@@ -383,9 +441,15 @@ def process(
                     else:
                         click.echo("  Warning: Could not load DEM, skipping terrain analysis")
                 except ImportError as e:
-                    click.echo(f"  Warning: Terrain module not available ({e}), skipping terrain analysis")
+                    click.echo(
+                        f"  Warning: Terrain module not available ({e}), "
+                        "skipping terrain analysis"
+                    )
                 except Exception as e:
-                    click.echo(f"  Warning: Terrain analysis failed ({e}), continuing without terrain data")
+                    click.echo(
+                        f"  Warning: Terrain analysis failed ({e}), "
+                        "continuing without terrain data"
+                    )
             elif skip_terrain:
                 click.echo("\n3b. Terrain analysis skipped (--skip-terrain)")
 
@@ -396,13 +460,13 @@ def process(
             if not skip_landcover and changes.polygons:
                 click.echo("\n3c. Classifying land cover...")
                 try:
+                    from georisk.raster.change import _classify_change
                     from georisk.raster.landcover import (
+                        classify_polygon_landcover,
                         is_landcover_available,
                         load_eurosat_model,
                         load_scene_bands,
-                        classify_polygon_landcover,
                     )
-                    from georisk.raster.change import _classify_change
 
                     if is_landcover_available():
                         model = load_eurosat_model()
@@ -420,7 +484,10 @@ def process(
                                     change.ml_model_version = result.model_version
                                     classified_count += 1
 
-                            click.echo(f"  Classified {classified_count}/{len(changes.polygons)} polygons")
+                            total = len(changes.polygons)
+                            click.echo(
+                                f"  Classified {classified_count}/{total} polygons"
+                            )
 
                             # Re-classify change types with land cover context
                             reclassified = 0
@@ -433,15 +500,30 @@ def process(
                                         change.change_type = new_type
                                         reclassified += 1
                             if reclassified:
-                                click.echo(f"  Refined {reclassified} change types with land cover context")
+                                click.echo(
+                                    f"  Refined {reclassified} change types "
+                                    "with land cover context"
+                                )
                         else:
-                            click.echo("  Warning: Could not load scene bands, skipping classification")
+                            click.echo(
+                                "  Warning: Could not load scene bands, "
+                                "skipping classification"
+                            )
                     else:
-                        click.echo("  ML dependencies not installed (pip install -e '.[ml]'), skipping")
+                        click.echo(
+                            "  ML dependencies not installed "
+                            "(pip install -e '.[ml]'), skipping"
+                        )
                 except ImportError as e:
-                    click.echo(f"  Warning: Land cover module not available ({e}), skipping")
+                    click.echo(
+                        f"  Warning: Land cover module not available ({e}), "
+                        "skipping"
+                    )
                 except Exception as e:
-                    click.echo(f"  Warning: Land cover classification failed ({e}), continuing without")
+                    click.echo(
+                        f"  Warning: Land cover classification failed ({e}), "
+                        "continuing without"
+                    )
             elif skip_landcover:
                 click.echo("\n3c. Land cover classification skipped (--skip-landcover)")
 
@@ -450,10 +532,10 @@ def process(
                 click.echo("\n3d. Running landslide detection...")
                 try:
                     from georisk.raster.landslide import (
+                        LANDSLIDE_SENTINEL_BANDS,
+                        classify_polygon_landslide,
                         is_landslide_available,
                         load_landslide_model,
-                        classify_polygon_landslide,
-                        LANDSLIDE_SENTINEL_BANDS,
                     )
 
                     if is_landslide_available():
@@ -487,13 +569,19 @@ def process(
                         else:
                             click.echo("  Warning: Could not load scene bands, skipping")
                     else:
-                        click.echo("  ML dependencies not installed (pip install -e '.[ml]'), skipping")
+                        click.echo(
+                            "  ML dependencies not installed "
+                            "(pip install -e '.[ml]'), skipping"
+                        )
                 except FileNotFoundError as e:
                     click.echo(f"  Warning: {e}")
                 except ImportError as e:
                     click.echo(f"  Warning: Landslide module not available ({e}), skipping")
                 except Exception as e:
-                    click.echo(f"  Warning: Landslide detection failed ({e}), continuing without")
+                    click.echo(
+                        f"  Warning: Landslide detection failed ({e}), "
+                        "continuing without"
+                    )
             elif skip_landslide:
                 click.echo("\n3d. Landslide detection skipped (--skip-landslide)")
             elif dem_data is None and not skip_landslide:
@@ -539,7 +627,11 @@ def process(
 
             for polygon_index, change in enumerate(changes.polygons):
                 # Map polygon to its created ID (by index)
-                polygon_id = created_polygon_ids[polygon_index] if polygon_index < len(created_polygon_ids) else None
+                polygon_id = (
+                    created_polygon_ids[polygon_index]
+                    if polygon_index < len(created_polygon_ids)
+                    else None
+                )
                 # Pass DEM data for directional terrain analysis
                 nearby = find_nearby_assets(
                     change.geometry,
@@ -555,7 +647,10 @@ def process(
                         "assetId": prox.asset_id,
                         "distanceMeters": prox.distance_meters,
                         "riskScore": score.score,
-                        "riskLevel": {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}.get(score.level, 0),
+                        "riskLevel": {
+                            "Low": 0, "Medium": 1,
+                            "High": 2, "Critical": 3,
+                        }.get(score.level, 0),
                         "scoringFactors": score.scoring_factors_dict,
                     })
 
@@ -578,7 +673,12 @@ def process(
                 # Sanitize stats: replace NaN/Inf with None for JSON compliance
                 import math
                 clean_stats = {
-                    k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
+                    k: (
+                        None
+                        if isinstance(v, float)
+                        and (math.isnan(v) or math.isinf(v))
+                        else v
+                    )
                     for k, v in changes.stats.items()
                 }
                 api.update_processing_run(
@@ -612,7 +712,11 @@ def process(
         if run_id:
             try:
                 with ApiClient() as api:
-                    api.update_processing_run(run_id, status=ProcessingStatus.FAILED, error_message=str(e))
+                    api.update_processing_run(
+                        run_id,
+                        status=ProcessingStatus.FAILED,
+                        error_message=str(e),
+                    )
             except Exception:
                 pass
         sys.exit(1)

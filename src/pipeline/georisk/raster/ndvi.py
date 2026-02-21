@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import rasterio
 import structlog
 import xarray as xr
 
@@ -71,12 +70,20 @@ def calculate_ndvi(
 
     # Load bands if paths/URLs provided
     if isinstance(red_band, (str, Path)):
-        red = load_band(Path(red_band)) if Path(red_band).exists() else load_band_from_url(str(red_band))
+        red = (
+            load_band(Path(red_band))
+            if Path(red_band).exists()
+            else load_band_from_url(str(red_band))
+        )
     else:
         red = red_band
 
     if isinstance(nir_band, (str, Path)):
-        nir = load_band(Path(nir_band)) if Path(nir_band).exists() else load_band_from_url(str(nir_band))
+        nir = (
+            load_band(Path(nir_band))
+            if Path(nir_band).exists()
+            else load_band_from_url(str(nir_band))
+        )
     else:
         nir = nir_band
 

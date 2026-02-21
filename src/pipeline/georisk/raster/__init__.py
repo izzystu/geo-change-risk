@@ -1,15 +1,15 @@
 """Raster processing modules for NDVI, change detection, and terrain analysis."""
 
-from georisk.raster.ndvi import calculate_ndvi, NdviResult
-from georisk.raster.change import detect_changes, ChangePolygon
-from georisk.raster.download import download_scene, clip_to_aoi
+from georisk.raster.change import ChangePolygon, detect_changes
+from georisk.raster.download import clip_to_aoi, download_scene
+from georisk.raster.ndvi import NdviResult, calculate_ndvi
 from georisk.raster.terrain import (
-    load_dem_for_bbox,
+    DEMData,
+    DirectionalTerrainMetrics,
+    TerrainData,
     calculate_slope_aspect,
     extract_terrain_stats_for_polygon,
-    DEMData,
-    TerrainData,
-    DirectionalTerrainMetrics,
+    load_dem_for_bbox,
 )
 
 __all__ = [
