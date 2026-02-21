@@ -16,6 +16,9 @@ jobs:
   check-and-build:
     runs-on: ubuntu-latest
 
+    env:
+      PUBLIC_API_URL: http://localhost:5074
+
     steps:
       - uses: actions/checkout@v4
 
