@@ -153,7 +153,7 @@
 		const { default: GeoJSONLayer } = await import('@arcgis/core/layers/GeoJSONLayer');
 
 		// Remove existing layers
-		assetLayers.forEach(layers => layers.forEach(layer => mapView!.map.remove(layer)));
+		assetLayers.forEach(layers => layers.forEach(layer => mapView?.map?.remove(layer)));
 		assetLayers.clear();
 
 		try {
@@ -223,7 +223,7 @@
 					});
 
 					sublayers.push(layer);
-					mapView.map.add(layer);
+					mapView!.map!.add(layer);
 				}
 
 				assetLayers.set(assetType, sublayers);
@@ -361,8 +361,9 @@
 
 		if (existingLayer) {
 			// Update existing layer
-			existingLayer.source.elements.removeAll();
-			existingLayer.source.elements.add(imageElement);
+			const source = existingLayer.source as __esri.LocalMediaElementSource;
+			source.elements.removeAll();
+			source.elements.add(imageElement);
 			existingLayer.opacity = opacity;
 		} else {
 			// Create new layer
@@ -625,7 +626,7 @@
 			let assetPoint: __esri.Point | null = null;
 			const changeCentroid = changeTarget.type === 'point'
 				? changeTarget as __esri.Point
-				: (changeTarget as __esri.Polygon).centroid;
+				: (changeTarget as __esri.Polygon).centroid!;
 
 			if (event.assetGeometry) {
 				if (event.assetGeometry.type === 'Point') {
@@ -663,7 +664,7 @@
 							: event.assetGeometry.coordinates as number[][][],
 						spatialReference: { wkid: 4326 }
 					});
-					assetPoint = assetPoly.centroid;
+					assetPoint = assetPoly.centroid ?? null;
 				}
 			}
 
