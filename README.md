@@ -102,6 +102,7 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 - **Automated Scheduling** - Per-AOI cron-based scheduling with configurable cloud cover thresholds and continuous temporal coverage. See [docs/automated-scheduling.md](docs/automated-scheduling.md)
 - **Interactive Map UI** - ArcGIS Maps SDK with before/after imagery comparison, layer controls, and risk event exploration
 - **Dismiss/Act Workflow** - Risk events support operational triage with dismiss and action tracking
+- **CI Pipeline** - GitHub Actions workflows for .NET build/test, Python lint/test, and SvelteKit type checking/build — path-filtered and triggered on PRs and pushes to main
 
 ## Technology Stack
 
@@ -285,11 +286,13 @@ Azure OpenAI support follows the same `ILlmService` provider pattern. An `AzureO
 
 ```
 geo-change-risk/
+├── .github/workflows/          # CI pipelines (GitHub Actions)
 ├── src/
 │   ├── api/                    # .NET 8 REST API
 │   │   ├── GeoChangeRisk.Api/      # Controllers, services, jobs
 │   │   ├── GeoChangeRisk.Data/     # EF Core models, migrations
-│   │   └── GeoChangeRisk.Contracts/ # DTOs and shared types
+│   │   ├── GeoChangeRisk.Contracts/ # DTOs and shared types
+│   │   └── GeoChangeRisk.Tests/    # xUnit tests (controllers, services, jobs)
 │   ├── pipeline/               # Python raster processing
 │   │   └── georisk/               # CLI and processing modules
 │   └── web-ui/                 # SvelteKit frontend
@@ -311,7 +314,7 @@ geo-change-risk/
 Prerequisites: Docker Desktop, .NET 8 SDK, Python 3.11+, Node.js 18+
 
 ```powershell
-# 1. Start infrastructure (generates credentials, starts PostgreSQL + MinIO)
+# 1. Start infrastructure (generates credentials, starts PostgreSQL + MinIO + Ollama)
 .\deployments\local\setup.ps1
 
 # 2. Start API
