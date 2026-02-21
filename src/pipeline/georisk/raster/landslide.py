@@ -36,8 +36,8 @@ _cached_model: "LandslideModel | None" = None
 def is_landslide_available() -> bool:
     """Check if ML dependencies (torch, segmentation-models-pytorch) are installed."""
     try:
-        import torch  # noqa: F401
         import segmentation_models_pytorch  # noqa: F401
+        import torch  # noqa: F401
         return True
     except ImportError:
         return False
@@ -126,8 +126,8 @@ def load_landslide_model(
     if _cached_model is not None:
         return _cached_model
 
-    import torch
     import segmentation_models_pytorch as smp
+    import torch
 
     if device is None or device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"

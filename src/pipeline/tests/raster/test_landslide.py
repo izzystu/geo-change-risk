@@ -1,20 +1,17 @@
 """Tests for the landslide detection module."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from georisk.raster.landslide import (
-    LANDSLIDE_SENTINEL_BANDS,
     LANDSLIDE_PATCH_SIZE,
+    LANDSLIDE_SENTINEL_BANDS,
     LandslideResult,
-    _normalize_landslide_patch,
     _ensure_model_cached,
+    _normalize_landslide_patch,
     is_landslide_available,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constants

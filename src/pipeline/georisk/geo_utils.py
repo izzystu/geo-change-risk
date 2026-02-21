@@ -1,7 +1,6 @@
 """Shared geospatial utility functions."""
 
 from pyproj import CRS, Transformer
-from shapely.geometry import Point
 
 
 def get_utm_crs(lon: float, lat: float) -> CRS:

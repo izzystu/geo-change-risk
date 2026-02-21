@@ -3,7 +3,6 @@
 import planetary_computer
 import pystac_client
 import structlog
-from shapely.geometry import box
 
 from georisk.config import get_config
 

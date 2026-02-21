@@ -6,11 +6,10 @@ from typing import Any
 
 import geopandas as gpd
 import numpy as np
-import rasterio
 import structlog
 import xarray as xr
 from rasterio import features
-from shapely.geometry import shape, Polygon
+from shapely.geometry import Polygon, shape
 
 from georisk.config import get_config
 from georisk.raster.ndvi import NdviResult

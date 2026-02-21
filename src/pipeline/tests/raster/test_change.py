@@ -4,7 +4,6 @@ import pytest
 
 from georisk.raster.change import ChangePolygon, _classify_change
 
-
 # ---------------------------------------------------------------------------
 # _classify_change without land cover context
 # ---------------------------------------------------------------------------
@@ -126,7 +125,7 @@ class TestChangeTypeMap:
     def _get_change_type_map(self):
         """Extract the change_type_map from a ChangePolygon instance."""
         from shapely.geometry import box
-        cp = ChangePolygon(
+        ChangePolygon(
             geometry=box(0, 0, 1, 1),
             area_sq_meters=100.0,
             ndvi_drop_mean=-0.3,

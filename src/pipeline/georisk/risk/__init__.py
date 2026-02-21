@@ -1,7 +1,7 @@
 """Risk scoring and proximity analysis."""
 
-from georisk.risk.proximity import find_nearby_assets, ProximityResult
-from georisk.risk.scoring import calculate_risk_score, RiskScore
+from georisk.risk.proximity import ProximityResult, find_nearby_assets
+from georisk.risk.scoring import RiskScore, calculate_risk_score
 
 __all__ = [
     "find_nearby_assets",
