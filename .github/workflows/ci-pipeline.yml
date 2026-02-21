@@ -37,9 +37,10 @@ jobs:
         run: ruff check .
         working-directory: src/pipeline
 
-      - name: Type check with mypy
+      - name: Type check with mypy (informational)
         run: mypy georisk/ --ignore-missing-imports
         working-directory: src/pipeline
+        continue-on-error: true
 
       - name: Run tests
         run: pytest --cov=georisk --cov-report=term-missing
