@@ -41,7 +41,7 @@ Geospatial risk intelligence for critical infrastructure. Detects land-surface c
 
 ![Query results on map](docs/screenshots/nl-query-results.png)
 
-*Query results displayed on the map with interpreted query plan and result list. Results can be sent to the Risk Events panel for triage.*
+*Query results displayed on the map with result list. Results can be sent to the Risk Events panel for triage.*
 
 ### Automated Scheduling
 ![Scheduling panel](docs/screenshots/scheduling-panel.png)
