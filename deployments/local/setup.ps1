@@ -361,7 +361,7 @@ function Initialize-MinioBuckets {
         return
     }
 
-    $buckets = @("geo-rasters", "geo-artifacts", "ml-models")
+    $buckets = @("geo-rasters", "geo-artifacts", "ml-models", "georisk-lidar")
 
     # Configure mc alias inside container
     $null = docker exec georisk-minio mc alias set local http://localhost:9000 $minioUser $minioPass 2>&1

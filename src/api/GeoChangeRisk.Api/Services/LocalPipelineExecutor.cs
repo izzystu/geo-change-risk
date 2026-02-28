@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+
 using GeoChangeRisk.Contracts;
 using GeoChangeRisk.Data.Models;
 
@@ -62,6 +62,7 @@ public class LocalPipelineExecutor : IPipelineExecutor
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        ApplyCondaEnvironment(startInfo);
 
         using var process = new Process { StartInfo = startInfo };
 
@@ -129,6 +130,42 @@ public class LocalPipelineExecutor : IPipelineExecutor
             : _configuration["Python:PipelineDir"]!;
     }
 
+    /// <summary>
+    /// If the Python executable lives inside a conda environment, add the
+    /// environment's Library\bin and Scripts directories to the subprocess
+    /// PATH so that native libraries (e.g. PDAL) are discoverable.
+    /// </summary>
+    private void ApplyCondaEnvironment(ProcessStartInfo startInfo)
+    {
+        var pythonPath = startInfo.FileName;
+        var envDir = Path.GetDirectoryName(pythonPath);
+        if (string.IsNullOrEmpty(envDir))
+            return;
+
+        // Conda env layout: envDir/python.exe, envDir/Library/bin/, envDir/Scripts/
+        var libraryBin = Path.Combine(envDir, "Library", "bin");
+        var scripts = Path.Combine(envDir, "Scripts");
+
+        if (!Directory.Exists(libraryBin) && !Directory.Exists(scripts))
+            return;
+
+        // Copy current environment and prepend conda paths
+        var currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+        var extraPaths = new List<string>();
+        if (Directory.Exists(libraryBin)) extraPaths.Add(libraryBin);
+        if (Directory.Exists(scripts)) extraPaths.Add(scripts);
+        if (!extraPaths.Contains(envDir)) extraPaths.Add(envDir);
+
+        var newPath = string.Join(Path.PathSeparator.ToString(), extraPaths) + Path.PathSeparator + currentPath;
+        startInfo.Environment["PATH"] = newPath;
+        startInfo.Environment["CONDA_PREFIX"] = envDir;
+        // Prevent OpenMP conflict between conda (libomp) and PyTorch (libiomp5md)
+        startInfo.Environment["KMP_DUPLICATE_LIB_OK"] = "TRUE";
+
+        _logger.LogInformation("Applied conda environment paths from {EnvDir}: LibraryBin={LibraryBinExists}, Scripts={ScriptsExists}",
+            envDir, Directory.Exists(libraryBin), Directory.Exists(scripts));
+    }
+
     private async Task<int> RunProcessInternalAsync(
         string pythonExecutable,
         string workingDirectory,
@@ -146,6 +183,7 @@ public class LocalPipelineExecutor : IPipelineExecutor
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        ApplyCondaEnvironment(startInfo);
 
         using var process = new Process { StartInfo = startInfo };
 

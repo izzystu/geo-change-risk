@@ -334,7 +334,7 @@ initialize_minio_buckets() {
         return 1
     fi
 
-    local buckets=("geo-rasters" "geo-artifacts" "ml-models")
+    local buckets=("geo-rasters" "geo-artifacts" "ml-models" "georisk-lidar")
 
     # Configure mc alias inside container
     docker exec georisk-minio mc alias set local http://localhost:9000 "$minio_user" "$minio_pass" 2>/dev/null || true

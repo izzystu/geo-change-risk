@@ -7,6 +7,7 @@ locals {
     imagery   = "georisk-${var.env_name}-imagery"
     changes   = "georisk-${var.env_name}-changes"
     models    = "georisk-${var.env_name}-models"
+    lidar     = "georisk-${var.env_name}-lidar"
   }
 }
 
@@ -58,6 +59,19 @@ resource "aws_s3_bucket_cors_configuration" "changes" {
     allowed_headers = ["*"]
     allowed_methods = ["GET"]
     allowed_origins = ["*"]
+    max_age_seconds = 3600
+  }
+}
+
+# CORS for LIDAR bucket (range requests required for browser-based GeoTIFF terrain loading)
+resource "aws_s3_bucket_cors_configuration" "lidar" {
+  bucket = aws_s3_bucket.data["lidar"].id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET"]
+    allowed_origins = ["*"]
+    expose_headers  = ["Content-Range", "Accept-Ranges", "Content-Length"]
     max_age_seconds = 3600
   }
 }
@@ -126,6 +140,7 @@ output "bucket_names" {
     imagery   = aws_s3_bucket.data["imagery"].bucket
     changes   = aws_s3_bucket.data["changes"].bucket
     models    = aws_s3_bucket.data["models"].bucket
+    lidar     = aws_s3_bucket.data["lidar"].bucket
   }
 }
 

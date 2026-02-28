@@ -40,6 +40,7 @@ class MinioStorage:
         self.bucket_imagery = config.minio.bucket_imagery
         self.bucket_changes = config.minio.bucket_changes
         self.bucket_models = config.minio.bucket_models
+        self.bucket_lidar = config.minio.bucket_lidar
 
         # Determine if running in S3 mode (no endpoint) or MinIO mode
         self._s3_mode = not self.endpoint
@@ -417,3 +418,43 @@ class MinioStorage:
             object_key,
             content_type=content_type,
         )
+
+    def upload_lidar(
+        self,
+        local_path: Path,
+        aoi_id: str,
+        source_id: str,
+        filename: str | None = None,
+    ) -> str:
+        """Upload a LIDAR product to the lidar bucket.
+
+        Storage layout: {aoiId}/{sourceId}/{filename}
+        (dtm.tif, dsm.tif, chm.tif, metadata.json)
+
+        Args:
+            local_path: Path to the local file.
+            aoi_id: Area of Interest ID.
+            source_id: LIDAR source identifier (e.g., COPC tile ID).
+            filename: Optional filename (defaults to local filename).
+
+        Returns:
+            Full object path (bucket/key).
+        """
+        filename = filename or local_path.name
+        object_key = f"{aoi_id}/{source_id}/{filename}"
+
+        suffix = local_path.suffix.lower()
+        content_type = {
+            ".tif": "image/tiff",
+            ".tiff": "image/tiff",
+            ".json": "application/json",
+            ".laz": "application/octet-stream",
+        }.get(suffix, "application/octet-stream")
+
+        return self.upload_file(
+            local_path,
+            self.bucket_lidar,
+            object_key,
+            content_type=content_type,
+        )
+

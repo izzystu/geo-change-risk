@@ -4,7 +4,38 @@ import json
 
 # Configure structlog for CLI output
 import logging
+import os
 import sys
+
+# On Windows, ensure conda and PyTorch DLL directories are registered before
+# any native extensions (torch, PDAL) are imported.  Python 3.8+ no longer
+# uses PATH for DLL resolution, so we must call os.add_dll_directory() AND
+# prepend to PATH (some libraries use ctypes with LOAD_WITH_ALTERED_SEARCH_PATH).
+# We also import torch BEFORE numpy/rasterio to avoid the libomp/libiomp5md
+# OpenMP runtime conflict (torch must load its OMP first).
+if sys.platform == "win32":
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    _prefix = os.environ.get("CONDA_PREFIX") or sys.prefix
+    _dll_dirs = [
+        os.path.join(_prefix, "Lib", "site-packages", "torch", "lib"),
+        os.path.join(_prefix, "Library", "bin"),
+    ]
+    _path_additions = []
+    _current_path = os.environ.get("PATH", "")
+    for _d in _dll_dirs:
+        if os.path.isdir(_d):
+            if hasattr(os, "add_dll_directory"):
+                os.add_dll_directory(_d)
+            if _d not in _current_path:
+                _path_additions.append(_d)
+    if _path_additions:
+        os.environ["PATH"] = os.pathsep.join(_path_additions) + os.pathsep + _current_path
+    # Import torch early so its OpenMP runtime (libiomp5md.dll) loads first,
+    # before numpy/rasterio load conda's libomp.dll.
+    try:
+        import torch  # noqa: F401
+    except (ImportError, OSError):
+        pass  # ML dependencies not installed — graceful degradation
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -264,13 +295,14 @@ def check(
 @click.option("--max-distance", type=float, help="Max proximity distance in meters (default: 1000)")
 @click.option(
     "--dem-source",
-    type=click.Choice(["3dep", "local", "none"]),
+    type=click.Choice(["3dep", "lidar", "local", "none"]),
     default="3dep",
-    help="DEM source for terrain analysis (3dep=USGS 3DEP, local=local file, none=disable)",
+    help="DEM source for terrain analysis (3dep=USGS 3DEP 10m, lidar=3DEP LIDAR COPC 1m, local=local file, none=disable)",
 )
 @click.option("--skip-terrain", is_flag=True, help="Skip terrain analysis")
 @click.option("--skip-landcover", is_flag=True, help="Skip ML land cover classification")
 @click.option("--skip-landslide", is_flag=True, help="Skip ML landslide detection")
+@click.option("--skip-lidar", is_flag=True, help="Skip per-polygon LIDAR terrain generation for landslide polygons")
 @click.option("--dry-run", is_flag=True, help="Simulate without API updates")
 @click.pass_context
 def process(
@@ -287,6 +319,7 @@ def process(
     skip_terrain: bool,
     skip_landcover: bool,
     skip_landslide: bool,
+    skip_lidar: bool,
     dry_run: bool,
 ) -> None:
     """Process imagery and detect changes for an AOI."""
@@ -668,6 +701,89 @@ def process(
                 for event in critical[:5]:
                     click.echo(f"    - Asset {event['assetId']}: score={event['riskScore']}")
 
+            # 5. LIDAR terrain generation for landslide polygons
+            lidar_polygons_processed = 0
+            lidar_polygon_count = 0
+            if not dry_run and not skip_lidar:
+                landslide_polygons = [
+                    (change, created_polygon_ids[i])
+                    for i, change in enumerate(changes.polygons)
+                    if change.change_type == "LandslideDebris"
+                    and i < len(created_polygon_ids)
+                    and created_polygon_ids[i]
+                ]
+                lidar_polygon_count = len(landslide_polygons)
+
+                if landslide_polygons:
+                    from georisk.raster.lidar import is_lidar_available
+
+                    if is_lidar_available():
+                        click.echo(
+                            f"\n5. Generating LIDAR terrain for "
+                            f"{lidar_polygon_count} landslide polygon(s)..."
+                        )
+                        import tempfile
+
+                        from georisk.raster.lidar import process_polygon_lidar
+
+                        storage = MinioStorage()
+
+                        with tempfile.TemporaryDirectory(prefix="georisk_lidar_", ignore_cleanup_errors=True) as temp_dir:
+                            temp_path = Path(temp_dir)
+
+                            for idx, (change, pid) in enumerate(landslide_polygons, 1):
+                                click.echo(
+                                    f"  Processing polygon {idx}/{lidar_polygon_count} "
+                                    f"({pid[:8]}...)"
+                                )
+                                try:
+                                    poly_output = temp_path / pid
+                                    products = process_polygon_lidar(
+                                        polygon_wkt=change.geometry.wkt,
+                                        polygon_id=pid,
+                                        output_dir=poly_output,
+                                    )
+                                    if products is not None:
+                                        # Upload products to storage
+                                        source_id = f"polygon-{pid}"
+                                        for fname in ["dtm.tif", "dsm.tif", "chm.tif"]:
+                                            fpath = poly_output / fname
+                                            if fpath.exists():
+                                                storage.upload_lidar(
+                                                    fpath, aoi_id, source_id, fname,
+                                                )
+
+                                        # Save metadata
+                                        meta_path = poly_output / "metadata.json"
+                                        meta_path.write_text(
+                                            json.dumps(products.metadata.to_dict(), indent=2)
+                                        )
+                                        storage.upload_lidar(
+                                            meta_path, aoi_id, source_id, "metadata.json",
+                                        )
+
+                                        lidar_polygons_processed += 1
+                                        click.echo(
+                                            f"    Uploaded terrain products "
+                                            f"({products.metadata.point_count:,} points)"
+                                        )
+                                    else:
+                                        click.echo("    No COPC tiles found, skipping")
+                                except Exception as e:
+                                    click.echo(f"    Warning: LIDAR failed ({e}), continuing")
+
+                        click.echo(
+                            f"  LIDAR complete: {lidar_polygons_processed}/{lidar_polygon_count} "
+                            "polygons processed"
+                        )
+                    else:
+                        click.echo(
+                            "\n5. LIDAR terrain skipped (PDAL not installed — "
+                            "pip install -e '.[lidar]')"
+                        )
+            elif skip_lidar:
+                click.echo("\n5. LIDAR terrain generation skipped (--skip-lidar)")
+
             # Complete processing
             if run_id:
                 # Sanitize stats: replace NaN/Inf with None for JSON compliance
@@ -697,6 +813,8 @@ def process(
                             (c.ml_model_version for c in changes.polygons if c.ml_model_version),
                             None,
                         ),
+                        "lidar_polygon_count": lidar_polygon_count,
+                        "lidar_polygons_processed": lidar_polygons_processed,
                     },
                 )
 

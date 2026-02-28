@@ -48,6 +48,11 @@ Geospatial risk intelligence for critical infrastructure. Detects land-surface c
 
 *Scheduling panel with configurable frequency, cloud cover threshold, and job history showing automated processing runs.*
 
+### LIDAR Terrain Viewer
+![LIDAR 3D terrain viewer](docs/screenshots/lidar-viewer.png)
+
+*Interactive 3D LIDAR terrain mesh (rotate, zoom, pan) in split-panel view alongside the 2D risk map. 3D views are auto-generated for all detected landslide events.*
+
 ## What This Demonstrates
 
 This project combines three engineering disciplines into a single integrated platform:
@@ -69,6 +74,13 @@ This project combines three engineering disciplines into a single integrated pla
 - Custom U-Net landslide segmentation trained on Landslide4Sense (14-channel input)
 - Recall-optimized for safety-critical detection (0.78 recall vs 0.66 competition baseline)
 - Graceful degradation - ML enhances but never blocks the core pipeline
+
+### LIDAR / Point Cloud Processing
+- USGS 3DEP LIDAR point cloud ingestion via STAC API (Cloud Optimized Point Clouds)
+- PDAL-based ground classification (SMRF) and raster product generation (DTM/DSM/CHM)
+- Automated per-polygon LIDAR terrain generation for landslide-classified events during processing
+- Cloud-native point cloud storage (COPC in S3/MinIO with HTTP range request serving)
+- Interactive 3D terrain mesh visualization (Three.js + geotiff)
 
 ### LLM Integration
 - Natural language spatial queries translated into structured, type-safe query plans - no raw SQL generation
@@ -102,6 +114,7 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 - **Automated Scheduling** - Per-AOI cron-based scheduling with configurable cloud cover thresholds and continuous temporal coverage. See [docs/automated-scheduling.md](docs/automated-scheduling.md)
 - **Interactive Map UI** - ArcGIS Maps SDK with before/after imagery comparison, layer controls, and risk event exploration
 - **Dismiss/Act Workflow** - Risk events support operational triage with dismiss and action tracking
+- **LIDAR Point Cloud Processing** - USGS 3DEP COPC point clouds processed via PDAL into 1m DTM/DSM/CHM, replacing 10m raster DEM for high-resolution terrain analysis. Per-polygon 3D terrain automatically generated for detected landslide events. Interactive 3D viewer in the web UI.
 - **CI Pipeline** - GitHub Actions workflows for .NET build/test, Python lint/test, and SvelteKit type checking/build — path-filtered and triggered on PRs and pushes to main
 
 ## Technology Stack
@@ -117,6 +130,8 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 | **Cloud Deployment** | Terraform + AWS (App Runner, ECS Fargate, RDS, S3, CloudFront); Azure in progress | Production cloud infrastructure |
 | **ML Classification** | PyTorch + TorchGeo | Land cover classification (EuroSAT) |
 | **ML Segmentation** | PyTorch + segmentation-models-pytorch | Landslide detection (custom-trained U-Net) |
+| **LIDAR Processing** | PDAL + Python bindings | Point cloud ground classification, DTM/DSM/CHM generation |
+| **3D Visualization** | Three.js + geotiff | Interactive terrain mesh rendering from GeoTIFF elevation data |
 | **LLM Integration** | Ollama (local) / AWS Bedrock / Azure OpenAI (in progress) | Natural language spatial queries |
 
 ## Architecture
@@ -144,7 +159,8 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 │  - Change Polygons    │    │  - Terrain Analysis      │
 │  - Risk Events        │    │  - ML Land Cover         │
 │                       │    │  - ML Landslide Detection│
-└───────────────────────┘    │  - Risk Scoring          │
+└───────────────────────┘    │  - LIDAR Processing      │
+                             │  - Risk Scoring          │
                              └────────────┬─────────────┘
                                           │
                                           ▼
@@ -154,6 +170,7 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
                              │  - NDVI Rasters          │
                              │  - DEM Tiles             │
                              │  - ML Models             │
+                             │  - LIDAR Point Clouds    │
                              └──────────────────────────┘
 ```
 
@@ -181,7 +198,8 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 │  - Change Polygons    │    │  - Terrain Analysis      │
 │  - Risk Events        │    │  - ML Land Cover         │
 │                       │    │  - ML Landslide Detection│
-└───────────────────────┘    │  - Risk Scoring          │
+└───────────────────────┘    │  - LIDAR Processing      │
+                             │  - Risk Scoring          │
                              └────────────┬─────────────┘
                                           │
                                           ▼
@@ -191,6 +209,7 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
                              │  - NDVI Rasters          │
                              │  - DEM Tiles             │
                              │  - ML Models             │
+                             │  - LIDAR Point Clouds    │
                              └──────────────────────────┘
 ```
 
@@ -324,6 +343,10 @@ dotnet run
 # 3. Start Web UI (in another terminal)
 cd src/web-ui
 npm install && npm run dev
+
+# 4. (Optional) Install LIDAR processing dependencies
+cd src/pipeline
+pip install -e ".[lidar]"   # Requires PDAL - on Windows use: conda install -c conda-forge pdal python-pdal
 ```
 
 Open http://localhost:5173. See [docs/getting-started.md](docs/getting-started.md) for full instructions including sample data initialization and running change detection.
