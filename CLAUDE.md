@@ -72,3 +72,9 @@ For AWS deployment, see `docs/aws-deployment.md`. AWS uses IAM roles instead of 
 - ScheduledCheckJob guards against duplicate runs by checking for in-progress ProcessingRuns before creating new ones
 - Scheduled runs chain dates: each run's "before" date = previous run's "after" date, creating continuous temporal coverage
 - ML models stored in `ml-models` bucket (S3/MinIO), auto-downloaded to `~/.cache/georisk/models/` on first use
+- LIDAR processing is an optional dependency: `pip install -e ".[lidar]"` (PDAL). On Windows, PDAL typically needs conda: `conda install -c conda-forge pdal python-pdal`
+- DEM source option `--dem-source lidar` uses 3DEP LIDAR COPC for 1m resolution; falls back to `3dep` (10m raster) when PDAL unavailable or no COPC data found
+- `--skip-lidar` flag on `georisk process` skips per-polygon LIDAR terrain generation
+- Per-polygon LIDAR storage layout: `georisk-lidar/{aoiId}/polygon-{changePolygonId}/` with dtm.tif, dsm.tif, chm.tif, metadata.json
+- Web UI: LidarViewer component; split-panel layout shows 3D terrain mesh viewer alongside the 2D map when viewing polygon terrain
+- LidarController API: `GET /api/lidar/by-polygon/{changePolygonId}` (per-polygon terrain with presigned URLs)

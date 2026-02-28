@@ -66,7 +66,7 @@ def load_dem_for_bbox(
 
     Args:
         bbox: Bounding box as (min_lon, min_lat, max_lon, max_lat) in WGS84.
-        dem_source: DEM source ("3dep" for USGS 3DEP via Planetary Computer).
+        dem_source: DEM source ("3dep", "lidar", "local", or "none").
         cache_dir: Optional local cache directory for DEM files.
 
     Returns:
@@ -76,6 +76,8 @@ def load_dem_for_bbox(
 
     if dem_source == "3dep":
         return _load_3dep_dem(bbox, cache_dir)
+    elif dem_source == "lidar":
+        return _load_lidar_dem(bbox, cache_dir)
     elif dem_source == "local":
         config = get_config()
         if config.terrain.local_dem_path:
@@ -207,6 +209,86 @@ def _load_3dep_dem(
     except Exception as e:
         logger.error("Failed to load 3DEP DEM", error=str(e))
         return None
+
+
+def _load_lidar_dem(
+    bbox: tuple[float, float, float, float],
+    cache_dir: Path | None = None,
+) -> DEMData | None:
+    """Load high-resolution DEM from USGS 3DEP LIDAR COPC point clouds.
+
+    Falls back to standard 3DEP raster DEM if PDAL is unavailable or
+    no COPC data exists for the bbox.
+
+    Args:
+        bbox: Bounding box in WGS84.
+        cache_dir: Optional cache directory.
+
+    Returns:
+        DEMData or None if not available.
+    """
+    try:
+        from georisk.raster.lidar import (
+            is_lidar_available,
+            process_copc_to_dem,
+            search_lidar_copc,
+        )
+
+        if not is_lidar_available():
+            logger.warning("PDAL not installed, falling back to 3DEP raster DEM")
+            return _load_3dep_dem(bbox, cache_dir)
+
+        config = get_config()
+
+        # Search for COPC items
+        items = search_lidar_copc(bbox, collection=config.terrain.lidar_collection)
+        if not items:
+            logger.warning("No LIDAR COPC data found for bbox, falling back to 3DEP raster")
+            return _load_3dep_dem(bbox, cache_dir)
+
+        copc_urls = [item["href"] for item in items]
+        source_crs_epsg = next((i["proj_epsg"] for i in items if i.get("proj_epsg")), None)
+        logger.info(
+            "Processing LIDAR COPC data",
+            num_tiles=len(copc_urls),
+            source_crs=source_crs_epsg,
+        )
+
+        # Use cache dir or temp dir for output
+        import tempfile
+        output_dir = (
+            Path(cache_dir) if cache_dir
+            else Path(tempfile.mkdtemp(prefix="georisk_lidar_"))
+        )
+
+        products = process_copc_to_dem(
+            copc_urls=copc_urls,
+            bbox=bbox,
+            output_dir=output_dir,
+            resolution_m=config.terrain.lidar_resolution_m,
+            source_crs_epsg=source_crs_epsg,
+        )
+
+        logger.info(
+            "LIDAR DEM loaded",
+            shape=products.dtm.shape,
+            resolution_m=config.terrain.lidar_resolution_m,
+            point_count=products.metadata.point_count,
+        )
+
+        return DEMData(
+            elevation=products.dtm,
+            crs=products.crs,
+            transform=products.transform,
+            resolution_m=config.terrain.lidar_resolution_m,
+        )
+
+    except ImportError as e:
+        logger.warning("LIDAR module not available, falling back to 3DEP", error=str(e))
+        return _load_3dep_dem(bbox, cache_dir)
+    except Exception as e:
+        logger.error("LIDAR DEM processing failed, falling back to 3DEP", error=str(e))
+        return _load_3dep_dem(bbox, cache_dir)
 
 
 def _load_local_dem(dem_path: Path, bbox: tuple[float, float, float, float]) -> DEMData | None:

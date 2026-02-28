@@ -69,13 +69,44 @@ EUROSAT_MODEL_INPUT_SIZE = 224
 _cached_model: "LandCoverModel | None" = None
 
 
+def _setup_torch_dll_dirs() -> None:
+    """On Windows, register DLL directories needed by PyTorch before import.
+
+    Python 3.8+ no longer uses PATH for DLL resolution. We must explicitly
+    register directories via os.add_dll_directory() before loading native
+    extensions like torch's shm.dll.
+    """
+    import os
+    import sys
+    if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
+        return
+    for subdir in (
+        os.path.join(sys.prefix, "Library", "bin"),
+        os.path.join(sys.prefix, "Lib", "site-packages", "torch", "lib"),
+    ):
+        if os.path.isdir(subdir):
+            os.add_dll_directory(subdir)
+    # Also ensure PATH includes these dirs for any subprocess or ctypes usage
+    torch_lib = os.path.join(sys.prefix, "Lib", "site-packages", "torch", "lib")
+    lib_bin = os.path.join(sys.prefix, "Library", "bin")
+    path = os.environ.get("PATH", "")
+    additions = []
+    if os.path.isdir(torch_lib) and torch_lib not in path:
+        additions.append(torch_lib)
+    if os.path.isdir(lib_bin) and lib_bin not in path:
+        additions.append(lib_bin)
+    if additions:
+        os.environ["PATH"] = os.pathsep.join(additions) + os.pathsep + path
+
+
 def is_landcover_available() -> bool:
     """Check if ML dependencies (torch, torchgeo) are installed."""
     try:
+        _setup_torch_dll_dirs()
         import torch  # noqa: F401
         import torchgeo  # noqa: F401
         return True
-    except ImportError:
+    except (ImportError, OSError):
         return False
 
 

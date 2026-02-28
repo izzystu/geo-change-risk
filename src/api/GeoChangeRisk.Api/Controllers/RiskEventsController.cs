@@ -431,6 +431,7 @@ public class RiskEventsController : ControllerBase
             DismissedAt = riskEvent.DismissedAt,
             DismissedBy = riskEvent.DismissedBy,
             AoiId = riskEvent.ChangePolygon?.ProcessingRun?.AoiId,
+            ChangeTypeName = riskEvent.ChangePolygon?.ChangeType.ToString(),
             ChangeGeometry = riskEvent.ChangePolygon?.Geometry,
             AssetGeometry = riskEvent.Asset?.Geometry
         };

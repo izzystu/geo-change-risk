@@ -112,7 +112,8 @@ public class QueryExecutorService
             RiskLevelName = e.RiskLevel.ToString(),
             ScoringFactors = e.ScoringFactors,
             CreatedAt = e.CreatedAt,
-            AoiId = e.ChangePolygon?.ProcessingRun?.AoiId
+            AoiId = e.ChangePolygon?.ProcessingRun?.AoiId,
+            ChangeTypeName = e.ChangePolygon?.ChangeType.ToString()
         }).ToList();
 
         // GeoJSON
@@ -558,9 +559,11 @@ public class QueryExecutorService
                 properties = new Dictionary<string, object?>
                 {
                     ["riskEventId"] = e.RiskEventId,
+                    ["changePolygonId"] = e.ChangePolygonId,
                     ["assetId"] = e.AssetId,
                     ["assetName"] = e.Asset?.Name,
                     ["assetTypeName"] = e.Asset?.AssetType.ToString(),
+                    ["changeTypeName"] = e.ChangePolygon?.ChangeType.ToString(),
                     ["riskScore"] = e.RiskScore,
                     ["riskLevelName"] = e.RiskLevel.ToString(),
                     ["distanceMeters"] = e.DistanceMeters,

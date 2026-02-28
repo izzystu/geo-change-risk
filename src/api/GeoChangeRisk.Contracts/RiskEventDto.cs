@@ -56,6 +56,9 @@ public class RiskEventDto
     /// <summary>AOI ID (from change polygon -> processing run).</summary>
     public string? AoiId { get; set; }
 
+    /// <summary>Change type name (e.g. LandslideDebris).</summary>
+    public string? ChangeTypeName { get; set; }
+
     /// <summary>Change polygon geometry for display.</summary>
     public object? ChangeGeometry { get; set; }
 

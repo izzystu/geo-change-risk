@@ -15,6 +15,13 @@
 		showChangePolygons
 	} from '$lib/stores/processing';
 	import { api, type RiskEvent } from '$lib/services/api';
+	import {
+		selectedLidarSource,
+		showLidarViewer,
+		lidarLoading,
+		lidarError,
+		viewingPolygonId
+	} from '$lib/stores/lidar';
 
 	let mapContainer: HTMLDivElement;
 	let map: __esri.Map | null = null;
@@ -58,6 +65,17 @@
 		map.add(highlightLayer);
 
 		mapReady = true;
+
+		// Handle popup actions (e.g., "View 3D Terrain")
+		mapView.on('trigger-action', async (event: any) => {
+			if (event.action.id === 'view-3d-terrain') {
+				const polygonId = mapView?.popup?.selectedFeature?.getAttribute('changePolygonId')
+					|| (mapView?.popup as any)?._lidarPolygonId;
+				if (polygonId) {
+					await loadPolygonLidar(polygonId);
+				}
+			}
+		});
 
 		// If AOI was already selected before map was ready, load it now
 		if ($selectedAoi && $selectedAoi.aoiId !== currentAoiId) {
@@ -444,7 +462,14 @@
 								{ fieldName: 'detectedAt', label: 'Detected At' }
 							]
 						}
-					]
+					],
+					actions: [
+						{
+							id: 'view-3d-terrain',
+							title: 'View 3D Terrain',
+							className: 'esri-icon-globe',
+						}
+					] as any
 				}
 			});
 
@@ -508,6 +533,27 @@
 		};
 	}
 
+	async function loadPolygonLidar(changePolygonId: string): Promise<void> {
+		lidarLoading.set(true);
+		lidarError.set(null);
+		viewingPolygonId.set(changePolygonId);
+		try {
+			const detail = await api.getLidarByPolygon(changePolygonId);
+			selectedLidarSource.set(detail);
+			showLidarViewer.set(true);
+		} catch (err: any) {
+			if (err?.message?.includes('404')) {
+				lidarError.set('No LIDAR terrain data available for this polygon');
+			} else {
+				lidarError.set('Failed to load LIDAR terrain data');
+			}
+			viewingPolygonId.set(null);
+			console.warn('No LIDAR data for polygon:', changePolygonId, err);
+		} finally {
+			lidarLoading.set(false);
+		}
+	}
+
 	// Minimum zoom level when viewing risk events (prevents zooming too far out)
 	const MIN_RISK_EVENT_ZOOM = 14;
 
@@ -560,7 +606,15 @@
 							{ fieldName: 'criticalityName', label: 'Criticality' }
 						]
 					}
-				]
+				],
+				actions: [
+					{
+						type: 'button',
+						id: 'view-3d-terrain',
+						title: 'View 3D Terrain',
+						className: 'esri-icon-globe'
+					}
+				] as any
 			}
 		});
 
@@ -780,6 +834,36 @@
 							symbol: assetHighlightSymbol
 						}));
 					}
+				}
+			}
+			// If this is a landslide event, try to show a popup with View 3D Terrain action.
+			// Note: popup.open() may not be available in newer ArcGIS SDK versions;
+			// the primary UX path is the sidebar "View 3D Terrain" button.
+			if (event.changePolygonId && event.changeTypeName === 'LandslideDebris'
+				&& mapView?.popup && typeof (mapView.popup as any).open === 'function') {
+				try {
+					const { default: ActionButton } = await import('@arcgis/core/support/actions/ActionButton');
+					(mapView.popup as any).open({
+						title: `Landslide Risk Event`,
+						location: changeCentroid,
+						content: `<div style="font-size:13px">
+							<b>Risk Score:</b> ${event.riskScore}<br>
+							<b>Risk Level:</b> ${event.riskLevelName}<br>
+							<b>Asset:</b> ${event.assetName}<br>
+							<b>Change Type:</b> ${event.changeTypeName}<br>
+							<b>Distance:</b> ${Math.round(event.distanceMeters)}m
+						</div>`
+					});
+					mapView.popup.actions.push(
+						new ActionButton({
+							id: 'view-3d-terrain',
+							title: 'View 3D Terrain',
+							className: 'esri-icon-globe'
+						})
+					);
+					(mapView.popup as any)._lidarPolygonId = event.changePolygonId;
+				} catch (popupError) {
+					console.warn('Could not open landslide popup:', popupError);
 				}
 			}
 		} catch (error) {

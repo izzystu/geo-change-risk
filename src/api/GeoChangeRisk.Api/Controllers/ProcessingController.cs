@@ -16,6 +16,7 @@ namespace GeoChangeRisk.Api.Controllers;
 public class ProcessingController : ControllerBase
 {
     private const string ImageryBucket = "georisk-imagery";
+    private const string LidarBucket = "georisk-lidar";
 
     private readonly GeoChangeDbContext _context;
     private readonly IObjectStorageService _storageService;
@@ -249,7 +250,21 @@ public class ProcessingController : ControllerBase
             }
         }
 
-        // 4. Delete the processing run record
+        // 4. Delete per-polygon LIDAR terrain data from storage
+        foreach (var polygonId in changePolygonIds)
+        {
+            var lidarPrefix = $"{run.AoiId}/polygon-{polygonId}/";
+            try
+            {
+                await _storageService.DeleteFolderAsync(LidarBucket, lidarPrefix);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete LIDAR data {Prefix} for run {RunId}", lidarPrefix, runId);
+            }
+        }
+
+        // 5. Delete the processing run record
         _context.ProcessingRuns.Remove(run);
         await _context.SaveChangesAsync();
 

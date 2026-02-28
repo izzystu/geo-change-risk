@@ -78,6 +78,36 @@ export interface ImageryUploadResult {
 	message: string;
 }
 
+// LIDAR types
+export interface LidarFileWithUrl {
+	fileName: string;
+	objectPath: string;
+	size: number;
+	lastModified: string;
+	presignedUrl: string;
+}
+
+export interface LidarMetadataDto {
+	sourceId: string;
+	pointCount: number;
+	pointDensityPerM2: number;
+	crsEpsg: number;
+	resolutionM: number;
+	bounds?: number[];
+	classificationCounts?: Record<string, number>;
+}
+
+export interface LidarSourceDetail {
+	sourceId: string;
+	aoiId: string;
+	files: LidarFileWithUrl[];
+	dtmUrl?: string;
+	dsmUrl?: string;
+	chmUrl?: string;
+	metadata?: LidarMetadataDto;
+	lastModified: string;
+}
+
 // Processing types
 export interface ProcessingRunSummary {
 	runId: string;
@@ -131,6 +161,7 @@ export interface RiskEventSummary {
 
 export interface RiskEvent extends RiskEventSummary {
 	changePolygonId: string;
+	changeTypeName?: string;
 	riskLevel: number;
 	scoringFactors?: Record<string, unknown>;
 	notificationSentAt?: string;
@@ -464,5 +495,10 @@ export const api = {
 
 	async getQueryHealth(): Promise<{ available: boolean }> {
 		return fetchJson(`${API_BASE}/api/query/health`);
+	},
+
+	// LIDAR
+	async getLidarByPolygon(changePolygonId: string): Promise<LidarSourceDetail> {
+		return fetchJson(`${API_BASE}/api/lidar/by-polygon/${changePolygonId}`);
 	}
 };

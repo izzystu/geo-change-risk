@@ -5,7 +5,9 @@
 	import { unacknowledgedCount } from '$lib/stores/processing';
 	import { llmAvailable } from '$lib/stores/query';
 	import { scheduleConfig } from '$lib/stores/scheduling';
+	import { showLidarViewer } from '$lib/stores/lidar';
 	import MapView from '$lib/components/MapView.svelte';
+	import LidarViewer from '$lib/components/LidarViewer.svelte';
 	import CollapsibleSection from '$lib/components/CollapsibleSection.svelte';
 	import AoiSelector from '$lib/components/AoiSelector.svelte';
 	import LayerPanel from '$lib/components/LayerPanel.svelte';
@@ -140,6 +142,7 @@
 					</svelte:fragment>
 					<SchedulingPanel />
 				</CollapsibleSection>
+
 			</div>
 		{/if}
 
@@ -151,8 +154,15 @@
 		</footer>
 	</aside>
 
-	<main class="map-area">
-		<MapView bind:this={mapViewComponent} />
+	<main class="map-area" class:split={$showLidarViewer}>
+		<div class="map-container">
+			<MapView bind:this={mapViewComponent} />
+		</div>
+		{#if $showLidarViewer}
+			<div class="lidar-container">
+				<LidarViewer />
+			</div>
+		{/if}
 	</main>
 </div>
 
@@ -278,6 +288,22 @@
 	.map-area {
 		flex: 1;
 		position: relative;
+		display: flex;
+	}
+
+	.map-container {
+		flex: 1;
+		position: relative;
+		min-width: 0;
+		transition: flex 0.3s ease;
+	}
+
+	.lidar-container {
+		flex: 1;
+		position: relative;
+		min-width: 0;
+		border-left: 2px solid var(--color-border);
+		transition: flex 0.3s ease;
 	}
 
 	.status-message {

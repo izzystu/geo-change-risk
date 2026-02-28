@@ -29,6 +29,7 @@ class MinioConfig:
     bucket_imagery: str = "georisk-imagery"
     bucket_changes: str = "georisk-changes"
     bucket_models: str = "ml-models"
+    bucket_lidar: str = "georisk-lidar"
 
 
 @dataclass
@@ -55,9 +56,12 @@ class TerrainConfig:
     """Terrain analysis configuration."""
 
     enabled: bool = True
-    dem_source: str = "3dep"  # "3dep", "copernicus", "local"
+    dem_source: str = "3dep"  # "3dep", "lidar", "local"
     local_dem_path: str | None = None
     cache_dem: bool = True
+    lidar_resolution_m: float = 1.0
+    lidar_collection: str = "3dep-lidar-copc"
+    lidar_cache_dir: str | None = None
 
 
 @dataclass
@@ -179,6 +183,8 @@ class Config:
             self.minio.bucket_changes = bucket
         if bucket := os.getenv("MINIO_BUCKET_MODELS"):
             self.minio.bucket_models = bucket
+        if bucket := os.getenv("MINIO_BUCKET_LIDAR"):
+            self.minio.bucket_lidar = bucket
 
         # STAC
         if url := os.getenv("STAC_CATALOG_URL"):
@@ -221,6 +227,12 @@ class Config:
             self.terrain.local_dem_path = local_dem_path
         if cache_dem := os.getenv("CACHE_DEM"):
             self.terrain.cache_dem = cache_dem.lower() in ("true", "1", "yes")
+        if lidar_res := os.getenv("LIDAR_RESOLUTION_M"):
+            self.terrain.lidar_resolution_m = float(lidar_res)
+        if lidar_collection := os.getenv("LIDAR_COLLECTION"):
+            self.terrain.lidar_collection = lidar_collection
+        if lidar_cache := os.getenv("LIDAR_CACHE_DIR"):
+            self.terrain.lidar_cache_dir = lidar_cache
 
 
 # Global config instance

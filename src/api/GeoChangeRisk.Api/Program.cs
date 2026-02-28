@@ -289,13 +289,16 @@ try
         ?? builder.Configuration["MinIO:BucketImagery"] ?? "georisk-imagery";
     var bucketChanges = builder.Configuration["Storage:BucketChanges"]
         ?? builder.Configuration["MinIO:BucketChanges"] ?? "georisk-changes";
+    var bucketLidar = builder.Configuration["Storage:BucketLidar"]
+        ?? builder.Configuration["MinIO:BucketLidar"] ?? "georisk-lidar";
 
     await storageService.EnsureBucketExistsAsync(bucketRasters);
     await storageService.EnsureBucketExistsAsync(bucketArtifacts);
     await storageService.EnsureBucketExistsAsync(bucketImagery);
     await storageService.EnsureBucketExistsAsync(bucketChanges);
-    logger.LogInformation("Storage buckets initialized: {Rasters}, {Artifacts}, {Imagery}, {Changes}",
-        bucketRasters, bucketArtifacts, bucketImagery, bucketChanges);
+    await storageService.EnsureBucketExistsAsync(bucketLidar);
+    logger.LogInformation("Storage buckets initialized: {Rasters}, {Artifacts}, {Imagery}, {Changes}, {Lidar}",
+        bucketRasters, bucketArtifacts, bucketImagery, bucketChanges, bucketLidar);
 }
 catch (Exception ex)
 {

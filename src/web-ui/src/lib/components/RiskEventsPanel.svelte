@@ -13,6 +13,7 @@
 	import { queryResultEventIds } from '$lib/stores/query';
 	import { api, RiskLevelColors, type RiskEvent, type RiskEventSummary } from '$lib/services/api';
 	import { parseFactors, generateSummary, generateSuggestedAction, getFactorBarColor } from '$lib/utils/riskSummary';
+	import { selectedLidarSource, showLidarViewer, lidarLoading, lidarError, viewingPolygonId } from '$lib/stores/lidar';
 	import TakeActionDialog from './TakeActionDialog.svelte';
 
 	export let onEventClick: ((eventId: string | null) => void) | undefined = undefined;
@@ -150,6 +151,28 @@
 
 	function setAssetTypeFilter(type: string | null) {
 		riskEventFilters.update(f => ({ ...f, assetType: type }));
+	}
+
+	async function handleViewTerrain(evt: Event, changePolygonId: string) {
+		evt.stopPropagation();
+		lidarLoading.set(true);
+		lidarError.set(null);
+		viewingPolygonId.set(changePolygonId);
+		try {
+			const detail = await api.getLidarByPolygon(changePolygonId);
+			selectedLidarSource.set(detail);
+			showLidarViewer.set(true);
+		} catch (err: any) {
+			if (err?.message?.includes('404')) {
+				lidarError.set('No LIDAR terrain data available for this polygon');
+			} else {
+				lidarError.set('Failed to load LIDAR terrain data');
+			}
+			viewingPolygonId.set(null);
+			console.warn('No LIDAR data for polygon:', changePolygonId, err);
+		} finally {
+			lidarLoading.set(false);
+		}
 	}
 </script>
 
@@ -312,6 +335,19 @@
 
 								{#if landCover}
 									<span class="detail-tag land-cover">{landCover}</span>
+								{/if}
+
+								{#if expandedEventDetail.changeTypeName === 'LandslideDebris' && expandedEventDetail.changePolygonId}
+									<button
+										class="terrain-btn"
+										disabled={$lidarLoading}
+										on:click={(e) => { if (expandedEventDetail?.changePolygonId) handleViewTerrain(e, expandedEventDetail.changePolygonId); }}
+									>
+										{$lidarLoading ? 'Loading...' : 'View 3D Terrain'}
+									</button>
+									{#if $lidarError && $viewingPolygonId === expandedEventDetail.changePolygonId}
+										<span class="terrain-error">{$lidarError}</span>
+									{/if}
 								{/if}
 							{:else}
 								<span class="detail-loading">Loading...</span>
@@ -527,6 +563,34 @@
 		font-size: 0.6875rem;
 		color: var(--color-text-muted);
 		font-style: italic;
+	}
+
+	.terrain-btn {
+		align-self: flex-start;
+		padding: 0.25rem 0.625rem;
+		font-size: 0.6875rem;
+		font-weight: 500;
+		border: 1px solid #6366f1;
+		border-radius: var(--radius-sm);
+		background: rgba(99, 102, 241, 0.1);
+		color: #818cf8;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.terrain-btn:hover:not(:disabled) {
+		background: #6366f1;
+		color: white;
+	}
+
+	.terrain-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.terrain-error {
+		font-size: 0.625rem;
+		color: #f87171;
 	}
 
 	.event-header {
