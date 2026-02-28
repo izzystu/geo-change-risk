@@ -248,11 +248,18 @@ def _load_lidar_dem(
 
         copc_urls = [item["href"] for item in items]
         source_crs_epsg = next((i["proj_epsg"] for i in items if i.get("proj_epsg")), None)
-        logger.info("Processing LIDAR COPC data", num_tiles=len(copc_urls), source_crs=source_crs_epsg)
+        logger.info(
+            "Processing LIDAR COPC data",
+            num_tiles=len(copc_urls),
+            source_crs=source_crs_epsg,
+        )
 
         # Use cache dir or temp dir for output
         import tempfile
-        output_dir = Path(cache_dir) if cache_dir else Path(tempfile.mkdtemp(prefix="georisk_lidar_"))
+        output_dir = (
+            Path(cache_dir) if cache_dir
+            else Path(tempfile.mkdtemp(prefix="georisk_lidar_"))
+        )
 
         products = process_copc_to_dem(
             copc_urls=copc_urls,

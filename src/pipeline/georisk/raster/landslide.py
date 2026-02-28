@@ -40,7 +40,8 @@ def _setup_torch_dll_dirs() -> None:
     register directories via os.add_dll_directory() before loading native
     extensions like torch's shm.dll.
     """
-    import os, sys
+    import os
+    import sys
     if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
         return
     for subdir in (

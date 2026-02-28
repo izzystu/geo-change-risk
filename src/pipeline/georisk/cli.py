@@ -297,12 +297,16 @@ def check(
     "--dem-source",
     type=click.Choice(["3dep", "lidar", "local", "none"]),
     default="3dep",
-    help="DEM source for terrain analysis (3dep=USGS 3DEP 10m, lidar=3DEP LIDAR COPC 1m, local=local file, none=disable)",
+    help="DEM source for terrain analysis "
+    "(3dep=10m, lidar=COPC 1m, local=file, none=disable)",
 )
 @click.option("--skip-terrain", is_flag=True, help="Skip terrain analysis")
 @click.option("--skip-landcover", is_flag=True, help="Skip ML land cover classification")
 @click.option("--skip-landslide", is_flag=True, help="Skip ML landslide detection")
-@click.option("--skip-lidar", is_flag=True, help="Skip per-polygon LIDAR terrain generation for landslide polygons")
+@click.option(
+    "--skip-lidar", is_flag=True,
+    help="Skip per-polygon LIDAR terrain for landslide polygons",
+)
 @click.option("--dry-run", is_flag=True, help="Simulate without API updates")
 @click.pass_context
 def process(
@@ -728,7 +732,10 @@ def process(
 
                         storage = MinioStorage()
 
-                        with tempfile.TemporaryDirectory(prefix="georisk_lidar_", ignore_cleanup_errors=True) as temp_dir:
+                        with tempfile.TemporaryDirectory(
+                            prefix="georisk_lidar_",
+                            ignore_cleanup_errors=True,
+                        ) as temp_dir:
                             temp_path = Path(temp_dir)
 
                             for idx, (change, pid) in enumerate(landslide_polygons, 1):

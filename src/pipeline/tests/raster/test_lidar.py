@@ -166,7 +166,7 @@ class TestLoadLidarDemFallback:
         mock_3dep.return_value = None
         from georisk.raster.terrain import _load_lidar_dem
 
-        result = _load_lidar_dem((-121.7, 39.7, -121.5, 39.9))
+        _load_lidar_dem((-121.7, 39.7, -121.5, 39.9))
         mock_3dep.assert_called_once()
 
     @patch("georisk.raster.terrain._load_3dep_dem")
@@ -176,7 +176,7 @@ class TestLoadLidarDemFallback:
         mock_3dep.return_value = None
         from georisk.raster.terrain import _load_lidar_dem
 
-        result = _load_lidar_dem((-121.7, 39.7, -121.5, 39.9))
+        _load_lidar_dem((-121.7, 39.7, -121.5, 39.9))
         mock_search.assert_called_once()
         mock_3dep.assert_called_once()
 
