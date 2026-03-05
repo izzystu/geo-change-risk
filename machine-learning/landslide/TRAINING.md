@@ -1,16 +1,21 @@
-# Landslide U-Net Training Notes
+# Landslide Segmentation Training Notes
 
 ## Concepts
 
 ### The Model
 
-We use a **U-Net**, a neural network architecture designed for image segmentation (labeling each pixel in an image). It takes a satellite image patch and outputs a mask predicting which pixels are landslide debris.
+We use **segmentation models** — neural network architectures designed for image segmentation (labeling each pixel in an image). The model takes a satellite image patch and outputs a mask predicting which pixels are landslide debris.
 
-The U-Net has two halves:
-- **Encoder** (the "eyes") — extracts features from the image (edges, textures, terrain patterns). We use **resnet34**, a 34-layer deep network. We also tried resnet50 (50 layers, more capacity) but it didn't improve results on this small dataset.
-- **Decoder** — takes those features and produces a pixel-level prediction map.
+All architectures supported via `segmentation-models-pytorch`:
+- **U-Net** — classic encoder-decoder with skip connections. The encoder extracts features, the decoder produces pixel-level predictions. Our baseline used ResNet34.
+- **SegFormer** — transformer encoder (Mix Transformer) with lightweight MLP decoder. Hierarchical attention captures long-range spatial context that CNNs miss. NVIDIA's architecture, competition-winning performance.
+- **UPerNet** — Unified Perceptual Parsing Network with pyramid pooling decoder. Good multi-scale feature aggregation.
 
-**ImageNet pretrained weights** means the encoder starts with features learned from millions of natural images (cats, cars, landscapes). Even though satellite imagery looks different, low-level features like edges and textures transfer well and give the model a head start vs random initialization.
+Each architecture has two halves:
+- **Encoder** (the "eyes") — extracts features from the image. Can be a CNN (resnet34, resnet50) or a transformer (mit_b0 through mit_b5). Transformer encoders use attention to relate distant pixels directly, while CNNs build up context through stacked local filters.
+- **Decoder** — takes those features and produces a pixel-level prediction map. U-Net uses skip connections, SegFormer uses a lightweight MLP, UPerNet uses pyramid pooling.
+
+**ImageNet pretrained weights** means the encoder starts with features learned from millions of natural images (cats, cars, landscapes). Even though satellite imagery looks different, low-level features like edges and textures transfer well and give the model a head start vs random initialization. SMP automatically adapts pretrained weights to 14-channel input.
 
 ### Loss Functions
 
@@ -82,7 +87,11 @@ $env:HF_TOKEN="your_token_here"
 python -c "from huggingface_hub import snapshot_download; snapshot_download('ibm-nasa-geospatial/Landslide4sense', repo_type='dataset', local_dir='./data')"
 
 # 3. Train (best config from our experiments, ~30 min on RTX 4070)
+#    U-Net baseline:
 python train.py --data-dir ./data --output landslide_model.pth --epochs 100 --batch-size 16 --encoder-weights imagenet --max-pos-weight 10
+
+#    SegFormer (transformer architecture):
+python train.py --data-dir ./data --arch segformer --backbone mit_b2 --encoder-weights imagenet --output landslide_model.pth --epochs 100 --batch-size 16 --max-pos-weight 10
 
 # 4. Upload model to object storage (S3/MinIO)
 python -m georisk model upload landslide_model.pth
@@ -231,20 +240,22 @@ python train.py --data-dir ./data --output landslide_model.pth --epochs 100 --ba
 
 ## Summary
 
-| Run | Backbone | Loss | pos_weight | LR | Batch | Scheduler | IoU | Prec | Rec |
-|-----|----------|------|------------|-----|-------|-----------|-----|------|-----|
-| 1 | resnet34 | Dice+BCE | 42.1 | 1e-4 | 16 | Cosine | 0.32 | 0.29 | 0.85 |
-| 2 | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.46 | 0.54 | 0.76 |
-| 3 | resnet50 | Dice+BCE | 5.0 | 1e-4 | 32 | Cosine | 0.46 | 0.50 | 0.71 |
-| 4 | resnet34 | Dice+Focal | — | 1e-4 | 32 | Cosine | 0.48 | 0.44 | 0.75 |
-| 5 | resnet34 | Dice+Focal | — | 5e-5 | 32 | Plateau | 0.45 | 0.58 | 0.65 |
-| 6 | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.43 | 0.51 | 0.70 |
-| 8 | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | **0.47** | 0.42 | 0.78 |
+| Run | Arch | Backbone | Loss | pos_weight | LR | Batch | Scheduler | IoU | Prec | Rec |
+|-----|------|----------|------|------------|-----|-------|-----------|-----|------|-----|
+| 1 | unet | resnet34 | Dice+BCE | 42.1 | 1e-4 | 16 | Cosine | 0.32 | 0.29 | 0.85 |
+| 2 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.46 | 0.54 | 0.76 |
+| 3 | unet | resnet50 | Dice+BCE | 5.0 | 1e-4 | 32 | Cosine | 0.46 | 0.50 | 0.71 |
+| 4 | unet | resnet34 | Dice+Focal | — | 1e-4 | 32 | Cosine | 0.48 | 0.44 | 0.75 |
+| 5 | unet | resnet34 | Dice+Focal | — | 5e-5 | 32 | Plateau | 0.45 | 0.58 | 0.65 |
+| 6 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.43 | 0.51 | 0.70 |
+| 8 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | **0.47** | 0.42 | 0.78 |
+
+*Runs 9+ use transformer encoders — see [Transformer Experiments](#transformer-experiments) below.*
 
 ### What we learned
 
-- **~0.46 IoU is the practical ceiling** for a single U-Net on Landslide4Sense. Run-to-run variance is ~0.05 IoU, so runs 2-8 are all within noise of each other.
-- **Two changes mattered:** ImageNet pretrained encoder weights and capping pos_weight at 10. Everything else (resnet50, focal loss, different scheduler, lower LR, larger batch) made no meaningful difference.
+- **~0.46 IoU is the practical ceiling for U-Net + CNN encoders** on Landslide4Sense. Run-to-run variance is ~0.05 IoU, so runs 2-8 are all within noise of each other.
+- **Two changes mattered for the U-Net baseline:** ImageNet pretrained encoder weights and capping pos_weight at 10. Everything else (resnet50, focal loss, different scheduler, lower LR, larger batch) made no meaningful difference.
 - **The deployed v1 model** (Run 8) has IoU 0.47, Precision 0.42, Recall 0.78. The inference pipeline adds slope filtering (only classifies polygons in steep terrain) and dual-criteria thresholds (mean probability + pixel fraction) that further reduce false positives in practice.
 
 ### How we compare to the Landslide4Sense 2022 competition
@@ -259,6 +270,35 @@ The competition winners scored **F1 ~74-75%** using transformer-based architectu
 
 For landslide detection, long-range spatial context matters — a debris field's relationship to the slope above it, drainage patterns, surrounding terrain. Transformers capture this naturally, which is why they scored higher. But they're significantly larger, slower to train, need more data, and are a bigger engineering effort. For a v1 where landslide detection is one signal among many, the U-Net is the right tradeoff.
 
+## Transformer Experiments
+
+After 8 runs with U-Net + CNN encoders plateaued at ~0.46 IoU, we tested transformer-based architectures. The Landslide4Sense 2022 competition winners achieved ~74-75% F1 using transformer architectures (Swin, SegFormer). The gap is architectural — transformers capture long-range spatial context that CNNs inherently miss.
+
+`segmentation-models-pytorch` ships Mix Transformer encoders (`mit_b0` through `mit_b5`) and a native `smp.Segformer` architecture. This enabled near-drop-in experiments with the same training loop.
+
+### Experiment Plan
+
+| Run | Architecture | Encoder | Purpose |
+|-----|-------------|---------|---------|
+| 9 | `segformer` | `mit_b2` | SegFormer baseline vs U-Net baseline |
+| 10 | `unet` | `mit_b2` | Isolate encoder effect (transformer encoder + CNN decoder) |
+| 11 | `segformer` | `mit_b3` | Larger SegFormer if B2 shows improvement |
+
+All runs use the same hyperparams as Run 2 (best U-Net config): lr=1e-4, batch_size=16, Dice+BCE, pos_weight=10, cosine scheduler, ImageNet weights.
+
+```powershell
+# Run 9: SegFormer + mit_b2
+python train.py --data-dir ./data --arch segformer --backbone mit_b2 --encoder-weights imagenet --max-pos-weight 10 --output landslide_segformer_b2.pth
+
+# Run 10: U-Net + mit_b2 (transformer encoder, CNN decoder)
+python train.py --data-dir ./data --arch unet --backbone mit_b2 --encoder-weights imagenet --max-pos-weight 10 --output landslide_unet_mit_b2.pth
+
+# Run 11: SegFormer + mit_b3 (larger transformer)
+python train.py --data-dir ./data --arch segformer --backbone mit_b3 --encoder-weights imagenet --max-pos-weight 10 --output landslide_segformer_b3.pth
+```
+
+*Results will be logged to MLflow (`mlflow ui` to compare) and documented here after training.*
+
 ## Performance Notes
 
 - ~40s per epoch on RTX 4070 Laptop GPU
@@ -272,8 +312,10 @@ For landslide detection, long-range spatial context matters — a debris field's
 - ~~**resnet50 backbone**~~ — tried in Run 3, no improvement over resnet34
 - ~~**Focal loss**~~ — tried in Runs 4-5, marginal or no improvement
 - ~~**ReduceLROnPlateau scheduler**~~ — tried in Run 5, more stable but no improvement
+- ~~**Transformer architecture**~~ — implemented (Runs 9-11), SegFormer/UPerNet support via `--arch` flag
 - **Pre-cache HDF5 to numpy** to eliminate data loading bottleneck
 - **Lower confidence threshold** at inference (0.3-0.4) if precision is high but recall drops
 - **Tversky loss** with alpha > beta to penalize FPs more than FNs
 - **Test-time augmentation (TTA)** — average predictions over flips/rotations at inference
 - **Set random seed** for reproducibility between runs
+- **Ensemble** — combine predictions from U-Net + SegFormer for higher robustness

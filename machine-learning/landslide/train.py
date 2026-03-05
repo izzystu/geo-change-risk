@@ -1,8 +1,10 @@
-"""Training loop for landslide U-Net model.
+"""Training loop for landslide segmentation model.
 
 Entry point for training on Landslide4Sense dataset.
+Supports multiple architectures: U-Net, SegFormer, UPerNet.
 Usage:
     python train.py --data-dir /path/to/landslide4sense --output model.pth
+    python train.py --data-dir ./data --arch segformer --backbone mit_b2 --encoder-weights imagenet --output model.pth
 """
 
 import argparse
@@ -75,8 +77,9 @@ def train(args: argparse.Namespace) -> None:
     )
 
     # Create model
-    print(f"Creating U-Net with {args.backbone} encoder...")
+    print(f"Creating {args.arch} with {args.backbone} encoder...")
     model = get_model(
+        arch=args.arch,
         encoder_name=args.backbone,
         encoder_weights=args.encoder_weights or None,
     )
@@ -132,8 +135,9 @@ def train(args: argparse.Namespace) -> None:
     print(f"  Mixed precision: {use_amp}")
     print()
 
-    with mlflow.start_run(run_name=f"unet-{args.backbone}"):
+    with mlflow.start_run(run_name=f"{args.arch}-{args.backbone}"):
         mlflow.log_params({
+            "arch": args.arch,
             "backbone": args.backbone,
             "lr": args.lr,
             "batch_size": args.batch_size,
@@ -250,9 +254,10 @@ def train(args: argparse.Namespace) -> None:
                 # Save best checkpoint
                 checkpoint = {
                     "model_state_dict": model.state_dict(),
+                    "arch": args.arch,
                     "encoder_name": args.backbone,
                     "in_channels": 14,
-                    "model_version": f"landslide-unet-{args.backbone}-ls4s-v1",
+                    "model_version": f"landslide-{args.arch}-{args.backbone}-ls4s-v1",
                     "patch_size": 128,
                     "normalization": {
                         "means": means.tolist(),
@@ -303,11 +308,16 @@ def _normalize_batch(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Train landslide U-Net on Landslide4Sense dataset"
+        description="Train landslide segmentation model on Landslide4Sense dataset"
     )
     parser.add_argument(
         "--data-dir", type=str, required=True,
         help="Path to Landslide4Sense dataset directory",
+    )
+    parser.add_argument(
+        "--arch", type=str, default="unet",
+        choices=["unet", "segformer", "upernet"],
+        help="Model architecture (default: unet)",
     )
     parser.add_argument(
         "--output", type=str, default="landslide_model.pth",

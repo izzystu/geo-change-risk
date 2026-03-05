@@ -71,8 +71,9 @@ This project combines three engineering disciplines into a single integrated pla
 
 ### Machine Learning
 - EuroSAT land cover classification (pretrained via TorchGeo) for risk context weighting
-- Custom U-Net landslide segmentation trained on Landslide4Sense (14-channel input)
+- Custom landslide segmentation trained on Landslide4Sense (14-channel input) with multi-architecture support (U-Net, SegFormer, UPerNet)
 - Recall-optimized for safety-critical detection (0.78 recall vs 0.66 competition baseline)
+- MLflow experiment tracking for structured comparison across architectures and hyperparameters
 - Graceful degradation - ML enhances but never blocks the core pipeline
 
 ### LIDAR / Point Cloud Processing
@@ -129,7 +130,7 @@ The result is a prioritized feed of risk events that tells an asset operator: *"
 | **Background Jobs** | Hangfire (local) / EventBridge (AWS) / Azure Functions (in progress) | Scheduled processing and notifications |
 | **Cloud Deployment** | Terraform + AWS (App Runner, ECS Fargate, RDS, S3, CloudFront); Azure in progress | Production cloud infrastructure |
 | **ML Classification** | PyTorch + TorchGeo | Land cover classification (EuroSAT) |
-| **ML Segmentation** | PyTorch + segmentation-models-pytorch | Landslide detection (custom-trained U-Net) |
+| **ML Segmentation** | PyTorch + segmentation-models-pytorch | Landslide detection (U-Net, SegFormer, UPerNet) |
 | **LIDAR Processing** | PDAL + Python bindings | Point cloud ground classification, DTM/DSM/CHM generation |
 | **3D Visualization** | Three.js + geotiff | Interactive terrain mesh rendering from GeoTIFF elevation data |
 | **LLM Integration** | Ollama (local) / AWS Bedrock / Azure OpenAI (in progress) | Natural language spatial queries |
@@ -252,15 +253,15 @@ The platform uses two ML models that integrate into the pipeline as optional dep
 
 Pretrained EuroSAT model (via TorchGeo) classifies the land cover around each change polygon. This provides context for risk scoring: a vegetation loss event in forest land (1.0x) is treated very differently from one on agricultural land (0.3x) where seasonal clearing is routine.
 
-### Landslide Detection (Custom U-Net)
+### Landslide Detection
 
-A U-Net segmentation model trained in-house on the [Landslide4Sense](https://github.com/iarai/Landslide4Sense-2022) dataset to detect landslide debris in satellite imagery. Post-fire terrain loses the root systems that stabilize slopes, making debris flow a critical correlated hazard for downstream infrastructure.
+A segmentation model trained in-house on the [Landslide4Sense](https://github.com/iarai/Landslide4Sense-2022) dataset to detect landslide debris in satellite imagery. Post-fire terrain loses the root systems that stabilize slopes, making debris flow a critical correlated hazard for downstream infrastructure.
 
 **Training pipeline** (`machine-learning/landslide/`):
-- **Architecture:** U-Net with ResNet34 encoder (via segmentation-models-pytorch), pretrained on ImageNet and adapted to 14-channel input
+- **Architecture:** Multi-architecture support via segmentation-models-pytorch — U-Net, SegFormer (transformer), and UPerNet. Selectable via `--arch` flag. Transformer encoders (Mix Transformer `mit_b2`/`mit_b3`) capture long-range spatial context that CNN encoders miss.
 - **Dataset:** Landslide4Sense - 3,799 training patches of 128x128 pixels, each with 12 Sentinel-2 spectral bands + slope + DEM elevation, with binary landslide masks
-- **Training approach:** Combined Dice + BCE loss with class imbalance handling (pos_weight capping), AdamW optimizer, cosine LR scheduling, mixed-precision training, early stopping on validation IoU
-- **Results:** IoU 0.47, F1 0.56, Recall 0.78 - achieves significantly higher recall than the [official competition baseline](https://github.com/iarai/Landslide4Sense-2022) (0.78 vs. 0.66) at comparable F1, prioritizing detection completeness over precision for a safety-critical application. Full training logs and hyperparameter search across 8 runs documented in [`TRAINING.md`](machine-learning/landslide/TRAINING.md)
+- **Training approach:** Combined Dice + BCE loss with class imbalance handling (pos_weight capping), AdamW optimizer, cosine LR scheduling, mixed-precision training, early stopping on validation IoU. MLflow experiment tracking for structured run comparison.
+- **Results (U-Net baseline):** IoU 0.47, F1 0.56, Recall 0.78 - achieves significantly higher recall than the [official competition baseline](https://github.com/iarai/Landslide4Sense-2022) (0.78 vs. 0.66) at comparable F1, prioritizing detection completeness over precision for a safety-critical application. Full training logs and hyperparameter search across 8+ runs documented in [`TRAINING.md`](machine-learning/landslide/TRAINING.md)
 
 **Inference integration** (`src/pipeline/georisk/raster/landslide.py`):
 - Assembles 14-channel input patches from data the pipeline already produces (Sentinel-2 bands + USGS 3DEP terrain)
