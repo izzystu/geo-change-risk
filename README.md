@@ -55,7 +55,7 @@ Geospatial risk intelligence for critical infrastructure. Detects land-surface c
 
 ## What This Demonstrates
 
-This project combines three engineering disciplines into a single integrated platform:
+This project combines several engineering disciplines into a single integrated platform:
 
 ### Geospatial Engineering
 - Sentinel-2 satellite imagery acquisition via STAC API (Microsoft Planetary Computer)
@@ -340,20 +340,20 @@ Prerequisites: Docker Desktop, .NET 8 SDK, Python 3.11+, Node.js 18+
 cd src/api/GeoChangeRisk.Api
 dotnet run
 
-# 3. Start Web UI (in another terminal)
+# 3. Install Python pipeline
+cd src/pipeline
+pip install -e .             # Base install (add ".[ml]" for ML classification, ".[lidar]" for LIDAR)
+
+# 4. Start Web UI (in another terminal)
 cd src/web-ui
 npm install && npm run dev
-
-# 4. (Optional) Install LIDAR processing dependencies
-cd src/pipeline
-pip install -e ".[lidar]"   # Requires PDAL - on Windows use: conda install -c conda-forge pdal python-pdal
 ```
 
 Open http://localhost:5173. See [docs/getting-started.md](docs/getting-started.md) for full instructions including sample data initialization and running change detection.
 
 ## Cloud Deployment
 
-The architecture is multi-cloud portable via DI-swappable provider interfaces (`IObjectStorageService`, `ISchedulerService`, `IPipelineExecutor`, `ILlmService`). See [docs/multi-cloud-strategy.md](docs/multi-cloud-strategy.md) for Azure and GCP deployment paths.
+The architecture is multi-cloud portable via DI-swappable provider interfaces (`IObjectStorageService`, `ISchedulerService`, `IPipelineExecutor`, `ILlmService`). See [docs/multi-cloud-strategy.md](docs/multi-cloud-strategy.md) for the multi-cloud strategy.
 
 ### AWS (Live)
 
