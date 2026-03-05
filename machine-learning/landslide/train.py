@@ -9,11 +9,16 @@ import argparse
 import time
 from pathlib import Path
 
-import numpy as np
-import torch
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"  # suppress OpenMP dual-runtime error (conda + pip torch)
+
+import torch  # must be imported before mlflow to avoid DLL conflicts on Windows
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+
+import mlflow
+import mlflow.pytorch
+import numpy as np
 
 import segmentation_models_pytorch as smp
 
@@ -110,8 +115,8 @@ def train(args: argparse.Namespace) -> None:
     use_amp = device == "cuda"
     scaler = torch.amp.GradScaler("cuda") if use_amp else None
 
-    # TensorBoard
-    writer = SummaryWriter()
+    # MLflow experiment tracking
+    mlflow.set_experiment("landslide-segmentation")
 
     # Training loop
     best_iou = 0.0
@@ -127,134 +132,151 @@ def train(args: argparse.Namespace) -> None:
     print(f"  Mixed precision: {use_amp}")
     print()
 
-    for epoch in range(1, args.epochs + 1):
-        epoch_start = time.time()
+    with mlflow.start_run(run_name=f"unet-{args.backbone}"):
+        mlflow.log_params({
+            "backbone": args.backbone,
+            "lr": args.lr,
+            "batch_size": args.batch_size,
+            "loss": args.loss,
+            "scheduler": args.scheduler,
+            "weight_decay": args.weight_decay,
+            "max_pos_weight": args.max_pos_weight,
+            "encoder_weights": args.encoder_weights or "none",
+            "epochs": args.epochs,
+            "patience": args.patience,
+        })
 
-        # Train
-        model.train()
-        train_loss = 0.0
-        train_batches = 0
+        for epoch in range(1, args.epochs + 1):
+            epoch_start = time.time()
 
-        for images, masks in train_loader:
-            images = _normalize_batch(images, means, stds).to(device)
-            masks = masks.to(device)
+            # Train
+            model.train()
+            train_loss = 0.0
+            train_batches = 0
 
-            optimizer.zero_grad()
-
-            if use_amp:
-                with torch.amp.autocast("cuda"):
-                    preds = model(images)
-                    loss = combined_loss(preds, masks)
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                preds = model(images)
-                loss = combined_loss(preds, masks)
-                loss.backward()
-                optimizer.step()
-
-            train_loss += loss.item()
-            train_batches += 1
-
-        if args.scheduler == "cosine":
-            scheduler.step()
-        avg_train_loss = train_loss / max(train_batches, 1)
-
-        # Validate
-        model.eval()
-        val_loss = 0.0
-        val_batches = 0
-        all_preds = []
-        all_masks = []
-
-        with torch.no_grad():
-            for images, masks in val_loader:
+            for images, masks in train_loader:
                 images = _normalize_batch(images, means, stds).to(device)
                 masks = masks.to(device)
+
+                optimizer.zero_grad()
 
                 if use_amp:
                     with torch.amp.autocast("cuda"):
                         preds = model(images)
                         loss = combined_loss(preds, masks)
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
                 else:
                     preds = model(images)
                     loss = combined_loss(preds, masks)
+                    loss.backward()
+                    optimizer.step()
 
-                val_loss += loss.item()
-                val_batches += 1
+                train_loss += loss.item()
+                train_batches += 1
 
-                probs = torch.sigmoid(preds)
-                all_preds.append(probs.cpu().numpy())
-                all_masks.append(masks.cpu().numpy())
+            if args.scheduler == "cosine":
+                scheduler.step()
+            avg_train_loss = train_loss / max(train_batches, 1)
 
-        avg_val_loss = val_loss / max(val_batches, 1)
+            # Validate
+            model.eval()
+            val_loss = 0.0
+            val_batches = 0
+            all_preds = []
+            all_masks = []
 
-        # Compute metrics
-        all_preds_np = np.concatenate(all_preds)
-        all_masks_np = np.concatenate(all_masks)
-        metrics = compute_metrics(all_preds_np, all_masks_np, threshold=0.5)
+            with torch.no_grad():
+                for images, masks in val_loader:
+                    images = _normalize_batch(images, means, stds).to(device)
+                    masks = masks.to(device)
 
-        elapsed = time.time() - epoch_start
-        print(
-            f"Epoch {epoch:3d}/{args.epochs} | "
-            f"Train Loss: {avg_train_loss:.4f} | "
-            f"Val Loss: {avg_val_loss:.4f} | "
-            f"IoU: {metrics['iou']:.4f} | "
-            f"F1: {metrics['f1']:.4f} | "
-            f"Prec: {metrics['precision']:.4f} | "
-            f"Rec: {metrics['recall']:.4f} | "
-            f"{elapsed:.1f}s"
-        )
+                    if use_amp:
+                        with torch.amp.autocast("cuda"):
+                            preds = model(images)
+                            loss = combined_loss(preds, masks)
+                    else:
+                        preds = model(images)
+                        loss = combined_loss(preds, masks)
 
-        # Step plateau scheduler after computing metrics
-        if args.scheduler == "plateau":
-            scheduler.step(metrics["iou"])
+                    val_loss += loss.item()
+                    val_batches += 1
 
-        # TensorBoard logging
-        writer.add_scalar("Loss/train", avg_train_loss, epoch)
-        writer.add_scalar("Loss/val", avg_val_loss, epoch)
-        writer.add_scalar("Metrics/IoU", metrics["iou"], epoch)
-        writer.add_scalar("Metrics/F1", metrics["f1"], epoch)
-        writer.add_scalar("Metrics/Precision", metrics["precision"], epoch)
-        writer.add_scalar("Metrics/Recall", metrics["recall"], epoch)
-        writer.add_scalar("LR", optimizer.param_groups[0]["lr"], epoch)
+                    probs = torch.sigmoid(preds)
+                    all_preds.append(probs.cpu().numpy())
+                    all_masks.append(masks.cpu().numpy())
 
-        # Early stopping on val IoU
-        if metrics["iou"] > best_iou:
-            best_iou = metrics["iou"]
-            best_f1 = metrics["f1"]
-            patience_counter = 0
+            avg_val_loss = val_loss / max(val_batches, 1)
 
-            # Save best checkpoint
-            checkpoint = {
-                "model_state_dict": model.state_dict(),
-                "encoder_name": args.backbone,
-                "in_channels": 14,
-                "model_version": f"landslide-unet-{args.backbone}-ls4s-v1",
-                "patch_size": 128,
-                "normalization": {
-                    "means": means.tolist(),
-                    "stds": stds.tolist(),
-                },
-                "metrics": {
-                    "val_iou": best_iou,
-                    "val_f1": best_f1,
-                    "val_precision": metrics["precision"],
-                    "val_recall": metrics["recall"],
-                },
-                "dataset": "landslide4sense",
-                "training_epochs": epoch,
-            }
-            torch.save(checkpoint, args.output)
-            print(f"  -> Saved best model (IoU={best_iou:.4f})")
-        else:
-            patience_counter += 1
-            if patience_counter >= args.patience:
-                print(f"\nEarly stopping at epoch {epoch} (patience={args.patience})")
-                break
+            # Compute metrics
+            all_preds_np = np.concatenate(all_preds)
+            all_masks_np = np.concatenate(all_masks)
+            metrics = compute_metrics(all_preds_np, all_masks_np, threshold=0.5)
 
-    writer.close()
+            elapsed = time.time() - epoch_start
+            print(
+                f"Epoch {epoch:3d}/{args.epochs} | "
+                f"Train Loss: {avg_train_loss:.4f} | "
+                f"Val Loss: {avg_val_loss:.4f} | "
+                f"IoU: {metrics['iou']:.4f} | "
+                f"F1: {metrics['f1']:.4f} | "
+                f"Prec: {metrics['precision']:.4f} | "
+                f"Rec: {metrics['recall']:.4f} | "
+                f"{elapsed:.1f}s"
+            )
+
+            # Step plateau scheduler after computing metrics
+            if args.scheduler == "plateau":
+                scheduler.step(metrics["iou"])
+
+            # MLflow logging
+            mlflow.log_metrics({
+                "train_loss": avg_train_loss,
+                "val_loss": avg_val_loss,
+                "iou": metrics["iou"],
+                "f1": metrics["f1"],
+                "precision": metrics["precision"],
+                "recall": metrics["recall"],
+                "lr": optimizer.param_groups[0]["lr"],
+            }, step=epoch)
+
+            # Early stopping on val IoU
+            if metrics["iou"] > best_iou:
+                best_iou = metrics["iou"]
+                best_f1 = metrics["f1"]
+                patience_counter = 0
+
+                # Save best checkpoint
+                checkpoint = {
+                    "model_state_dict": model.state_dict(),
+                    "encoder_name": args.backbone,
+                    "in_channels": 14,
+                    "model_version": f"landslide-unet-{args.backbone}-ls4s-v1",
+                    "patch_size": 128,
+                    "normalization": {
+                        "means": means.tolist(),
+                        "stds": stds.tolist(),
+                    },
+                    "metrics": {
+                        "val_iou": best_iou,
+                        "val_f1": best_f1,
+                        "val_precision": metrics["precision"],
+                        "val_recall": metrics["recall"],
+                    },
+                    "dataset": "landslide4sense",
+                    "training_epochs": epoch,
+                }
+                torch.save(checkpoint, args.output)
+                mlflow.log_artifact(args.output)
+                print(f"  -> Saved best model (IoU={best_iou:.4f})")
+            else:
+                patience_counter += 1
+                if patience_counter >= args.patience:
+                    print(f"\nEarly stopping at epoch {epoch} (patience={args.patience})")
+                    break
+
+        mlflow.log_metrics({"best_iou": best_iou, "best_f1": best_f1})
     print(f"\nTraining complete. Best val IoU: {best_iou:.4f}")
     print(f"Model saved to: {args.output}")
 

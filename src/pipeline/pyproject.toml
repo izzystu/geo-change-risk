@@ -46,6 +46,9 @@ ml = [
 ]
 # lidar: PDAL must be installed via conda, not pip (requires native C++ libraries)
 #   conda install -c conda-forge pdal python-pdal
+mlops = [
+    "mlflow>=2.10",
+]
 lidar = []
 dev = [
     "pytest>=8.0.0",
@@ -56,7 +59,7 @@ dev = [
     "mypy>=1.8.0",
 ]
 all = [
-    "georisk[ml,lidar,dev]",
+    "georisk[ml,mlops,lidar,dev]",
 ]
 
 [project.scripts]

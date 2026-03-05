@@ -1,6 +1,7 @@
 # Training artifacts
 runs/
 *.pth
+mlflow.db
 
 # Downloaded dataset
 data/

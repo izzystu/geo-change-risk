@@ -115,6 +115,23 @@ def _ensure_model_cached(target_path: Path) -> Path | None:
     if target_path.exists():
         return target_path
 
+    # Try MLflow model registry if tracking URI is configured
+    import os
+    if os.environ.get("MLFLOW_TRACKING_URI"):
+        try:
+            import mlflow.pytorch as mlflow_pytorch
+
+            logger.info("Checking MLflow model registry for landslide model")
+            model = mlflow_pytorch.load_model("models:/landslide-unet/Production")
+            # Save to local cache so subsequent loads use the cached .pth file
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            import torch
+            torch.save(model.state_dict(), target_path)
+            logger.info("Landslide model cached from MLflow registry", path=str(target_path))
+            return target_path
+        except (ImportError, Exception) as e:
+            logger.debug(f"MLflow model registry unavailable: {e}")
+
     try:
         from georisk.storage.minio import MinioStorage
 
