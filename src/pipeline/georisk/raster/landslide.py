@@ -1,8 +1,9 @@
-"""Landslide detection using a U-Net segmentation model.
+"""Landslide detection using a segmentation model.
 
 Classifies change polygons on steep terrain as landslides by running inference
-on 14-channel input (12 Sentinel-2 bands + slope + DEM elevation). Follows
-the same graceful-degradation pattern as landcover.py.
+on 14-channel input (12 Sentinel-2 bands + slope + DEM elevation). Supports
+multiple architectures (U-Net, SegFormer, UPerNet) via segmentation-models-pytorch.
+Follows the same graceful-degradation pattern as landcover.py.
 
 Requires optional ML dependencies: pip install -e ".[ml]"
 The pipeline degrades gracefully when these are not installed.
@@ -76,9 +77,9 @@ def is_landslide_available() -> bool:
 
 @dataclass
 class LandslideModel:
-    """Wrapper around a trained landslide U-Net model."""
+    """Wrapper around a trained landslide segmentation model."""
 
-    model: Any  # smp.Unet
+    model: Any  # smp.Unet | smp.Segformer | smp.UPerNet
     model_version: str
     device: str
     normalization_means: list[float]  # 14 values from checkpoint
@@ -207,6 +208,7 @@ def load_landslide_model(
 
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
+    arch = checkpoint.get("arch", "unet")
     encoder_name = checkpoint.get("encoder_name", "resnet34")
     in_channels = checkpoint.get("in_channels", 14)
     patch_size = checkpoint.get("patch_size", LANDSLIDE_PATCH_SIZE)
@@ -216,13 +218,18 @@ def load_landslide_model(
     means = normalization.get("means", [0.0] * 14)
     stds = normalization.get("stds", [1.0] * 14)
 
-    model = smp.Unet(
+    model_kwargs = dict(
         encoder_name=encoder_name,
         encoder_weights=None,
         in_channels=in_channels,
         classes=1,
-        activation=None,
     )
+    if arch == "segformer":
+        model = smp.Segformer(**model_kwargs)
+    elif arch == "upernet":
+        model = smp.UPerNet(**model_kwargs)
+    else:
+        model = smp.Unet(**model_kwargs, activation=None)
     model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(device)
     model.eval()

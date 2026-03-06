@@ -71,7 +71,9 @@ For AWS deployment, see `docs/aws-deployment.md`. AWS uses IAM roles instead of 
 - Automated scheduling uses per-AOI cron expressions (ProcessingSchedule field), the active ISchedulerService provider (Hangfire or EventBridge), and the `georisk check` CLI command
 - ScheduledCheckJob guards against duplicate runs by checking for in-progress ProcessingRuns before creating new ones
 - Scheduled runs chain dates: each run's "before" date = previous run's "after" date, creating continuous temporal coverage
-- ML models stored in `ml-models` bucket (S3/MinIO), auto-downloaded to `~/.cache/georisk/models/` on first use
+- ML models stored in `ml-models` bucket (S3/MinIO), auto-downloaded to `~/.cache/georisk/models/` on first use. MLflow model registry is an alternative when `MLFLOW_TRACKING_URI` is set
+- Landslide model checkpoints contain an `arch` field (`"unet"`, `"segformer"`, `"upernet"`) for architecture dispatch at inference time. Older checkpoints without `arch` default to `"unet"` for backward compatibility
+- MLflow experiment tracking: local file-based tracking (`mlruns/` directory), `mlflow>=2.10` in `[mlops]` optional deps. View with `mlflow ui` from `machine-learning/landslide/`
 - LIDAR processing is an optional dependency: `pip install -e ".[lidar]"` (PDAL). On Windows, PDAL typically needs conda: `conda install -c conda-forge pdal python-pdal`
 - DEM source option `--dem-source lidar` uses 3DEP LIDAR COPC for 1m resolution; falls back to `3dep` (10m raster) when PDAL unavailable or no COPC data found
 - `--skip-lidar` flag on `georisk process` skips per-polygon LIDAR terrain generation
