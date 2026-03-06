@@ -100,8 +100,14 @@ machine-learning/models/*.pt
 machine-learning/models/*.pth
 machine-learning/models/*.onnx
 machine-learning/data/
+machine-learning/landslide/data/
+machine-learning/landslide/*.pth
 *.h5
 *.hdf5
+
+# MLflow
+mlruns/
+mlflow.db
 
 # =============================================================================
 # Raster and GIS Data

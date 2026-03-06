@@ -282,6 +282,16 @@ def train(args: argparse.Namespace) -> None:
                     break
 
         mlflow.log_metrics({"best_iou": best_iou, "best_f1": best_f1})
+
+        # Log final best model for registry (reload from checkpoint to get best weights)
+        best_checkpoint = torch.load(args.output, map_location=device, weights_only=False)
+        best_model = get_model(
+            arch=args.arch,
+            encoder_name=args.backbone,
+            encoder_weights=None,
+        )
+        best_model.load_state_dict(best_checkpoint["model_state_dict"])
+        mlflow.pytorch.log_model(best_model, "model")
     print(f"\nTraining complete. Best val IoU: {best_iou:.4f}")
     print(f"Model saved to: {args.output}")
 
