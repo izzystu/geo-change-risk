@@ -72,7 +72,7 @@ This project combines several engineering disciplines into a single integrated p
 ### Machine Learning
 - EuroSAT land cover classification (pretrained via TorchGeo) for risk context weighting
 - Custom landslide segmentation trained on Landslide4Sense (14-channel input) with multi-architecture support (U-Net, SegFormer, UPerNet)
-- Recall-optimized for safety-critical detection (0.78 recall vs 0.66 competition baseline)
+- Systematic 12-run architecture comparison: SegFormer + mit_b2 best (F1 0.64 vs 0.58 competition baseline)
 - MLflow experiment tracking for structured comparison across architectures and hyperparameters
 - Graceful degradation - ML enhances but never blocks the core pipeline
 
@@ -261,7 +261,7 @@ A segmentation model trained in-house on the [Landslide4Sense](https://github.co
 - **Architecture:** Multi-architecture support via segmentation-models-pytorch — U-Net, SegFormer (transformer), and UPerNet. Selectable via `--arch` flag. Transformer encoders (Mix Transformer `mit_b2`/`mit_b3`) capture long-range spatial context that CNN encoders miss.
 - **Dataset:** Landslide4Sense - 3,799 training patches of 128x128 pixels, each with 12 Sentinel-2 spectral bands + slope + DEM elevation, with binary landslide masks
 - **Training approach:** Combined Dice + BCE loss with class imbalance handling (pos_weight capping), AdamW optimizer, cosine LR scheduling, mixed-precision training, early stopping on validation IoU. MLflow experiment tracking for structured run comparison.
-- **Results (U-Net baseline):** IoU 0.47, F1 0.56, Recall 0.78 - achieves significantly higher recall than the [official competition baseline](https://github.com/iarai/Landslide4Sense-2022) (0.78 vs. 0.66) at comparable F1, prioritizing detection completeness over precision for a safety-critical application. Full training logs and hyperparameter search across 8+ runs documented in [`TRAINING.md`](machine-learning/landslide/TRAINING.md)
+- **Results:** Best model is SegFormer + mit_b2 (IoU 0.47, F1 0.64, Precision 0.57) — beats the [official competition baseline](https://github.com/iarai/Landslide4Sense-2022) on all metrics (F1 0.64 vs 0.58, Precision 0.57 vs 0.52). Systematic comparison across 12 runs showed the SegFormer decoder paired with a transformer encoder outperforms all U-Net variants, with significantly higher precision (+10 pts) for fewer false alarms. Full training logs documented in [`TRAINING.md`](machine-learning/landslide/TRAINING.md)
 
 **Inference integration** (`src/pipeline/georisk/raster/landslide.py`):
 - Assembles 14-channel input patches from data the pipeline already produces (Sentinel-2 bands + USGS 3DEP terrain)

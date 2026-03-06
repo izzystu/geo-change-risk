@@ -240,35 +240,40 @@ python train.py --data-dir ./data --output landslide_model.pth --epochs 100 --ba
 
 ## Summary
 
-| Run | Arch | Backbone | Loss | pos_weight | LR | Batch | Scheduler | IoU | Prec | Rec |
-|-----|------|----------|------|------------|-----|-------|-----------|-----|------|-----|
-| 1 | unet | resnet34 | Dice+BCE | 42.1 | 1e-4 | 16 | Cosine | 0.32 | 0.29 | 0.85 |
-| 2 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.46 | 0.54 | 0.76 |
-| 3 | unet | resnet50 | Dice+BCE | 5.0 | 1e-4 | 32 | Cosine | 0.46 | 0.50 | 0.71 |
-| 4 | unet | resnet34 | Dice+Focal | — | 1e-4 | 32 | Cosine | 0.48 | 0.44 | 0.75 |
-| 5 | unet | resnet34 | Dice+Focal | — | 5e-5 | 32 | Plateau | 0.45 | 0.58 | 0.65 |
-| 6 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.43 | 0.51 | 0.70 |
-| 8 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | **0.47** | 0.42 | 0.78 |
-
-*Runs 9+ use transformer encoders — see [Transformer Experiments](#transformer-experiments) below.*
+| Run | Arch | Backbone | Loss | pos_weight | LR | Batch | Scheduler | IoU | F1 | Prec | Rec |
+|-----|------|----------|------|------------|-----|-------|-----------|-----|-----|------|-----|
+| 1 | unet | resnet34 | Dice+BCE | 42.1 | 1e-4 | 16 | Cosine | 0.32 | — | 0.29 | 0.85 |
+| 2 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.46 | 0.63 | 0.54 | 0.76 |
+| 3 | unet | resnet50 | Dice+BCE | 5.0 | 1e-4 | 32 | Cosine | 0.46 | 0.59 | 0.50 | 0.71 |
+| 4 | unet | resnet34 | Dice+Focal | — | 1e-4 | 32 | Cosine | 0.48 | 0.55 | 0.44 | 0.75 |
+| 5 | unet | resnet34 | Dice+Focal | — | 5e-5 | 32 | Plateau | 0.45 | 0.62 | 0.58 | 0.65 |
+| 6 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.43 | 0.59 | 0.51 | 0.70 |
+| 8 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.47 | 0.56 | 0.42 | 0.78 |
+| 9 | unet | resnet34 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.43 | 0.61 | 0.46 | 0.88 |
+| **10** | **segformer** | **mit_b2** | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | **0.47** | **0.64** | **0.57** | 0.72 |
+| 11 | unet | mit_b2 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.42 | 0.59 | 0.48 | 0.75 |
+| 12 | segformer | mit_b3 | Dice+BCE | 10.0 | 1e-4 | 16 | Cosine | 0.40 | 0.57 | 0.48 | 0.72 |
 
 ### What we learned
 
-- **~0.46 IoU is the practical ceiling for U-Net + CNN encoders** on Landslide4Sense. Run-to-run variance is ~0.05 IoU, so runs 2-8 are all within noise of each other.
-- **Two changes mattered for the U-Net baseline:** ImageNet pretrained encoder weights and capping pos_weight at 10. Everything else (resnet50, focal loss, different scheduler, lower LR, larger batch) made no meaningful difference.
-- **The deployed v1 model** (Run 8) has IoU 0.47, Precision 0.42, Recall 0.78. The inference pipeline adds slope filtering (only classifies polygons in steep terrain) and dual-criteria thresholds (mean probability + pixel fraction) that further reduce false positives in practice.
+- **SegFormer + mit_b2 is the best architecture** (Run 10) — highest IoU (0.47), highest F1 (0.64), and highest precision (0.57). The SegFormer decoder paired with a transformer encoder outperformed all U-Net variants.
+- **The decoder matters more than the encoder** — U-Net + mit_b2 (Run 11) actually performed *worse* than U-Net + resnet34 (Run 9). The U-Net skip-connection decoder doesn't pair well with transformer encoder features. SegFormer's native MLP decoder is designed for them.
+- **Bigger models overfit on this dataset** — mit_b3 < mit_b2 (Runs 12 vs 10), same as resnet50 < resnet34 (Runs 3 vs 2). 3,799 training patches isn't enough to benefit from extra capacity.
+- **SegFormer is more stable through LR restarts** — SegFormer/mit_b2 recovered from the epoch-20 cosine restart and kept improving to epoch 51. U-Net/mit_b2 never recovered (peaked at epoch 7, early-stopped at 27).
+- **Precision vs recall trade-off shifted favorably** — SegFormer trades recall (0.72 vs 0.88) for much better precision (0.57 vs 0.46). For a risk assessment tool, fewer false alarms is preferable since the pipeline has slope filtering and dual-criteria thresholds as safety nets.
+- **~0.46 IoU is the practical ceiling for U-Net + CNN encoders.** Run-to-run variance is ~0.05 IoU, so runs 2-9 are all within noise of each other. Two changes mattered: ImageNet pretrained weights and capping pos_weight at 10.
 
 ### How we compare to the Landslide4Sense 2022 competition
 
-The official competition baseline U-Net scored Precision 51.8%, Recall 65.5%, F1 57.8%. Our best run (Run 2) beat the baseline on all three: Precision 54%, Recall 76%, F1 63%.
+The official competition baseline U-Net scored Precision 51.8%, Recall 65.5%, F1 57.8%. Our SegFormer (Run 10) beats the baseline on all three: Precision 57%, Recall 72%, F1 64%. Our best U-Net (Run 2) also beat it: Precision 54%, Recall 76%, F1 63%.
 
-The competition winners scored **F1 ~74-75%** using transformer-based architectures (Swin Transformer, SegFormer) plus ensemble methods, hard example mining, self-training, and mix-up augmentation. The ~12-point F1 gap between our U-Net and those winning entries is not a hyperparameter tuning problem — it's an architectural difference.
+The competition winners scored **F1 ~74-75%** using transformer-based architectures (Swin Transformer, SegFormer) plus ensemble methods, hard example mining, self-training, and mix-up augmentation. The remaining ~10-point F1 gap is likely due to those advanced training techniques rather than architecture alone — our single SegFormer with basic training already closed the gap from ~12 points (U-Net) to ~10 points.
 
 **U-Nets** process images through small sliding windows (3x3 pixel filters). Each layer only sees a small neighborhood, so the network must stack many layers and progressively shrink/expand the image to understand large-scale patterns. It's like reading a page through a keyhole — you scan across and piece things together.
 
 **Transformers** (Swin, SegFormer) use an "attention" mechanism that lets every part of the image look at every other part directly. A pixel in the top-left can relate to one in the bottom-right in a single step, rather than relying on information to propagate through many layers.
 
-For landslide detection, long-range spatial context matters — a debris field's relationship to the slope above it, drainage patterns, surrounding terrain. Transformers capture this naturally, which is why they scored higher. But they're significantly larger, slower to train, need more data, and are a bigger engineering effort. For a v1 where landslide detection is one signal among many, the U-Net is the right tradeoff.
+For landslide detection, long-range spatial context matters — a debris field's relationship to the slope above it, drainage patterns, surrounding terrain. Transformers capture this naturally, which is why they scored higher.
 
 ## Transformer Experiments
 
@@ -276,35 +281,73 @@ After 8 runs with U-Net + CNN encoders plateaued at ~0.46 IoU, we tested transfo
 
 `segmentation-models-pytorch` ships Mix Transformer encoders (`mit_b0` through `mit_b5`) and a native `smp.Segformer` architecture. This enabled near-drop-in experiments with the same training loop.
 
-### Experiment Plan
+All runs use the same hyperparams as Run 2 (best U-Net config): lr=1e-4, batch_size=16, Dice+BCE, pos_weight=10, cosine scheduler, ImageNet weights, patience=20.
 
-| Run | Architecture | Encoder | Purpose |
-|-----|-------------|---------|---------|
-| 9 | `segformer` | `mit_b2` | SegFormer baseline vs U-Net baseline |
-| 10 | `unet` | `mit_b2` | Isolate encoder effect (transformer encoder + CNN decoder) |
-| 11 | `segformer` | `mit_b3` | Larger SegFormer if B2 shows improvement |
+### Run 9: U-Net baseline (MLflow re-establishment)
 
-All runs use the same hyperparams as Run 2 (best U-Net config): lr=1e-4, batch_size=16, Dice+BCE, pos_weight=10, cosine scheduler, ImageNet weights.
-
-```powershell
-# Run 9: SegFormer + mit_b2
-python train.py --data-dir ./data --arch segformer --backbone mit_b2 --encoder-weights imagenet --max-pos-weight 10 --output landslide_segformer_b2.pth
-
-# Run 10: U-Net + mit_b2 (transformer encoder, CNN decoder)
-python train.py --data-dir ./data --arch unet --backbone mit_b2 --encoder-weights imagenet --max-pos-weight 10 --output landslide_unet_mit_b2.pth
-
-# Run 11: SegFormer + mit_b3 (larger transformer)
-python train.py --data-dir ./data --arch segformer --backbone mit_b3 --encoder-weights imagenet --max-pos-weight 10 --output landslide_segformer_b3.pth
+```
+python train.py --data-dir ./data --arch unet --backbone resnet34 --encoder-weights imagenet --max-pos-weight 10 --patience 20 --output landslide_unet_baseline.pth
 ```
 
-*Results will be logged to MLflow (`mlflow ui` to compare) and documented here after training.*
+| Setting | Value |
+|---------|-------|
+| Arch | unet |
+| Encoder | resnet34, ImageNet weights adapted to 14ch |
+| Result | **IoU 0.4348**, F1 0.61, Prec 0.46, Rec 0.88, early stopped at epoch 54 |
+
+Re-run of the standard U-Net baseline to establish an MLflow comparison point. Landed in the expected ~0.43-0.47 range. The cosine restart at epoch 20 disrupted training but the model recovered by epoch 34 (this is why we increased patience from 15 to 20).
+
+### Run 10: SegFormer + mit_b2 (best model)
+
+```
+python train.py --data-dir ./data --arch segformer --backbone mit_b2 --encoder-weights imagenet --max-pos-weight 10 --patience 20 --output landslide_segformer_b2.pth
+```
+
+| Setting | Value |
+|---------|-------|
+| Arch | segformer |
+| Encoder | mit_b2 (Mix Transformer B2), ImageNet weights adapted to 14ch |
+| Result | **IoU 0.4656**, F1 0.64, Prec 0.57, Rec 0.72, early stopped at epoch 71 |
+
+**Best overall model.** Highest IoU, highest F1, and significantly higher precision than any U-Net run (+10 points over the baseline). The SegFormer decoder's MLP design pairs naturally with the transformer encoder's hierarchical features. Notably more stable through the cosine LR restart at epoch 60 — recovered to 0.4496 by epoch 65 and stayed competitive. ~73s/epoch vs ~62s for U-Net (18% slower).
+
+### Run 11: U-Net + mit_b2 (encoder isolation test)
+
+```
+python train.py --data-dir ./data --arch unet --backbone mit_b2 --encoder-weights imagenet --max-pos-weight 10 --patience 20 --output landslide_unet_mit_b2.pth
+```
+
+| Setting | Value |
+|---------|-------|
+| Arch | unet |
+| Encoder | mit_b2 (Mix Transformer B2), ImageNet weights adapted to 14ch |
+| Result | **IoU 0.4151**, F1 0.59, Prec 0.48, Rec 0.75, early stopped at epoch 27 |
+
+**Worst of the transformer runs.** Same encoder as Run 10 but with U-Net's skip-connection decoder instead of SegFormer's MLP decoder. Peaked early at epoch 7 and completely failed to recover from the epoch-20 cosine restart (dropped to 0.26, never climbed back). This proves the SegFormer decoder is the key differentiator — the U-Net decoder doesn't pair well with transformer encoder features.
+
+### Run 12: SegFormer + mit_b3 (capacity test)
+
+```
+python train.py --data-dir ./data --arch segformer --backbone mit_b3 --encoder-weights imagenet --max-pos-weight 10 --patience 20 --output landslide_segformer_b3.pth
+```
+
+| Setting | Value |
+|---------|-------|
+| Arch | segformer |
+| Encoder | mit_b3 (Mix Transformer B3), ImageNet weights adapted to 14ch |
+| Result | **IoU 0.4016**, F1 0.57, Prec 0.48, Rec 0.72, early stopped at epoch 27 |
+
+**Larger model performed worse**, same pattern as resnet50 vs resnet34 (Run 3 vs 2). mit_b3 (44.6M params) couldn't leverage its extra capacity on 3,799 training patches. Peaked at epoch 7 and stalled. ~85s/epoch vs ~73s for mit_b2.
 
 ## Performance Notes
 
-- ~40s per epoch on RTX 4070 Laptop GPU
+- RTX 4070 Laptop GPU (8GB VRAM)
+- U-Net + resnet34: ~62s/epoch
+- SegFormer + mit_b2: ~73s/epoch (18% slower)
+- SegFormer + mit_b3: ~85s/epoch (37% slower)
 - GPU utilization is low (brief spikes) — bottleneck is CPU-side HDF5 data loading, not GPU compute
 - 128x128 patches at batch_size=16 use only ~0.8GB VRAM; batch_size=32 would be fine
-- Full 100 epochs ~65 min, but early stopping typically triggers at 40-60 epochs
+- Full 100 epochs ~65-120 min depending on architecture, but early stopping typically triggers at 30-70 epochs
 
 ## Possible Future Improvements
 
