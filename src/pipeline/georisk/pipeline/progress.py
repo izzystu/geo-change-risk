@@ -2,7 +2,6 @@
 
 import click
 
-
 # Step name → display label mapping
 _STEP_LABELS = {
     "search_imagery": "1. Searching for imagery",

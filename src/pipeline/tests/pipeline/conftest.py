@@ -1,7 +1,8 @@
 """Shared test fixtures for pipeline framework tests."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from georisk.pipeline.context import StepContext
 

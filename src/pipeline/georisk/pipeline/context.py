@@ -1,12 +1,14 @@
 from dataclasses import dataclass, field
 from typing import Any
+
 from georisk.config import Config, get_config
 from georisk.db.client import ApiClient
+from georisk.raster.change import ChangeDetectionResult
+from georisk.raster.ndvi import NdviResult
+from georisk.raster.terrain import DEMData
 from georisk.stac.search import SceneInfo
 from georisk.storage.minio import MinioStorage
-from georisk.raster.ndvi import NdviResult
-from georisk.raster.change import ChangeDetectionResult
-from georisk.raster.terrain import DEMData
+
 
 @dataclass
 class StepContext:
@@ -19,7 +21,7 @@ class StepContext:
     run_id: str | None
     dry_run: bool
     window: int
-    threshold: float | None 
+    threshold: float | None
     min_area: float | None
     max_distance: float | None
     dem_source: str
@@ -32,7 +34,7 @@ class StepContext:
     api: ApiClient
     storage: MinioStorage | None = None
     config: Config = field(default_factory=get_config)
-    
+
     # --- Intermediate results ---
     before_scene: SceneInfo | None = None
     after_scene: SceneInfo | None = None

@@ -3,6 +3,7 @@
 from georisk.pipeline.context import StepContext
 from georisk.pipeline.step import ErrorPolicy, PipelineStep, StepResult
 
+
 class AnalyzeTerrainStep(PipelineStep):
     name = "analyze_terrain"
     error_policy = ErrorPolicy.OPTIONAL

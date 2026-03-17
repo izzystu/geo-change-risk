@@ -1,13 +1,18 @@
 from typing import Callable
-from georisk.pipeline.step import PipelineStep, StepResult, ErrorPolicy
+
 from georisk.pipeline.context import StepContext
+from georisk.pipeline.step import ErrorPolicy, PipelineStep, StepResult
 
 
 class PipelineError(Exception):
     pass
 
 class PipelineOrchestrator:
-    def __init__(self, steps: list[PipelineStep], on_progress: Callable[[str, str, str], None] | None = None):
+    def __init__(
+        self,
+        steps: list[PipelineStep],
+        on_progress: Callable[[str, str, str], None] | None = None,
+    ):
         self.steps = steps
         self.on_progress = on_progress
 

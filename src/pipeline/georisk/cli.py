@@ -42,13 +42,9 @@ from pathlib import Path
 import click
 import structlog
 
-from georisk.config import get_config, reload_config
+from georisk.config import reload_config
 from georisk.db.client import ApiClient, ProcessingStatus
-from georisk.raster.change import detect_changes
-from georisk.raster.ndvi import calculate_ndvi_from_scene
-from georisk.risk.proximity import find_nearby_assets
-from georisk.risk.scoring import RiskScorer
-from georisk.stac.search import find_scene_pair, search_scenes
+from georisk.stac.search import search_scenes
 from georisk.storage.minio import MinioStorage
 
 logging.basicConfig(format="%(message)s", level=logging.INFO)
