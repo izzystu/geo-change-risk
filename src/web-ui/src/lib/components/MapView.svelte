@@ -843,14 +843,15 @@
 				&& mapView?.popup && typeof (mapView.popup as any).open === 'function') {
 				try {
 					const { default: ActionButton } = await import('@arcgis/core/support/actions/ActionButton');
+					const esc = (s: unknown) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 					(mapView.popup as any).open({
 						title: `Landslide Risk Event`,
 						location: changeCentroid,
 						content: `<div style="font-size:13px">
-							<b>Risk Score:</b> ${event.riskScore}<br>
-							<b>Risk Level:</b> ${event.riskLevelName}<br>
-							<b>Asset:</b> ${event.assetName}<br>
-							<b>Change Type:</b> ${event.changeTypeName}<br>
+							<b>Risk Score:</b> ${esc(event.riskScore)}<br>
+							<b>Risk Level:</b> ${esc(event.riskLevelName)}<br>
+							<b>Asset:</b> ${esc(event.assetName)}<br>
+							<b>Change Type:</b> ${esc(event.changeTypeName)}<br>
 							<b>Distance:</b> ${Math.round(event.distanceMeters)}m
 						</div>`
 					});
