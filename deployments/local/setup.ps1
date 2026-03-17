@@ -208,6 +208,38 @@ function Initialize-AppConfigs {
     $minioPass = $envVars['MINIO_ROOT_PASSWORD']
     $minioPort = if ($envVars['MINIO_API_PORT']) { $envVars['MINIO_API_PORT'] } else { "9000" }
 
+    # Detect Python executable: prefer conda 'georisk' env, fall back to .venv, then system python
+    $pythonExe = $null
+    # Check for conda 'georisk' environment
+    $condaInfo = conda info --envs 2>$null | Select-String "georisk"
+    if ($condaInfo) {
+        $condaEnvPath = ($condaInfo.Line -split '\s+' | Where-Object { $_ -and $_ -ne 'georisk' -and $_ -ne '*' })[0]
+        if ($condaEnvPath -and (Test-Path (Join-Path $condaEnvPath "python.exe"))) {
+            $pythonExe = Join-Path $condaEnvPath "python.exe"
+            Write-Success "Detected conda 'georisk' environment: $pythonExe"
+        }
+    }
+    # Fall back to .venv
+    if (-not $pythonExe) {
+        $venvPython = Join-Path $RepoRoot "src\pipeline\.venv\Scripts\python.exe"
+        if (Test-Path $venvPython) {
+            $pythonExe = $venvPython
+            Write-Success "Detected .venv: $pythonExe"
+        }
+    }
+    # Fall back to system python
+    if (-not $pythonExe) {
+        if (Test-Command "python") {
+            $pythonExe = (Get-Command python).Source
+            Write-Warn "Using system Python: $pythonExe (recommend: conda env create -f environment.yml)"
+        } else {
+            $pythonExe = "python"
+            Write-Warn "Python not found. Create the conda environment: conda env create -f environment.yml"
+        }
+    }
+    $pythonExeEscaped = $pythonExe -replace '\\', '\\'
+    $pipelineDirEscaped = "$($RepoRoot -replace '\\', '\\')\\src\\pipeline"
+
     # Generate appsettings.Development.json for .NET API
     $appsettingsPath = Join-Path $RepoRoot "src\api\GeoChangeRisk.Api\appsettings.Development.json"
     if (-not (Test-Path $appsettingsPath)) {
@@ -228,8 +260,8 @@ function Initialize-AppConfigs {
     "SecretKey": "$minioPass"
   },
   "Python": {
-    "Executable": "$($RepoRoot -replace '\\', '\\')\\src\\pipeline\\.venv\\Scripts\\python.exe",
-    "PipelineDir": "$($RepoRoot -replace '\\', '\\')\\src\\pipeline"
+    "Executable": "$pythonExeEscaped",
+    "PipelineDir": "$pipelineDirEscaped"
   }
 }
 "@

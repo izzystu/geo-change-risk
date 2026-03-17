@@ -77,8 +77,11 @@ Stds:  [0.141, 0.221, 0.318, 0.572, 0.460, 0.447, 0.465, 0.495, 0.513, 0.684, 0.
 From the `machine-learning/landslide/` directory:
 
 ```powershell
-# 1. Install training dependencies (GPU build)
-pip install -r requirements.txt
+# 1. Install training dependencies
+#    Option A: If using the repo's conda environment (recommended):
+#      conda activate georisk
+#    Option B: Manual pip install (GPU build):
+pip install -e "../../src/pipeline[training]"
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
 
 # 2. Download dataset (~8GB)

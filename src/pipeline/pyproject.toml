@@ -49,7 +49,18 @@ ml = [
 mlops = [
     "mlflow>=2.10",
 ]
+training = [
+    "georisk[ml,mlops]",
+    "albumentations>=1.3",
+    "h5py>=3.10",
+    "huggingface-hub>=0.20",
+]
 lidar = []
+scripts = [
+    "requests>=2.31.0",
+    "geojson>=3.1.0",
+    "tqdm>=4.66.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -59,7 +70,7 @@ dev = [
     "mypy>=1.8.0",
 ]
 all = [
-    "georisk[ml,mlops,lidar,dev]",
+    "georisk[ml,mlops,training,lidar,scripts,dev]",
 ]
 
 [project.scripts]

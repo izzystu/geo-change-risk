@@ -48,12 +48,15 @@ deployments/aws/                         # Terraform modules (apprunner, pipelin
 
 ## Development Setup
 
-Prerequisites: Docker Desktop, .NET 8 SDK, Python 3.11+, Node.js 18+
+Prerequisites: Docker Desktop, .NET 8 SDK, Conda (Miniconda or Anaconda), Node.js 18+
 
-1. Infrastructure: `.\deployments\local\setup.ps1` (generates credentials, starts PostgreSQL + MinIO containers)
-2. API: `cd src/api/GeoChangeRisk.Api && dotnet run` (runs on localhost:5074, Swagger at `/swagger`, Hangfire at `/hangfire`)
-3. Pipeline: `cd src/pipeline && pip install -e .` (base) or `pip install -e ".[ml]"` (with ML land cover classification), then `python -m georisk <command>` (commands: `search`, `check`, `process`, `fetch`, `status`, `health`, `model upload/download/list`)
-4. Web UI: `cd src/web-ui && npm install && npm run dev` (runs on localhost:5173)
+1. Python environment: `conda env create -f environment.yml && conda activate georisk` (installs GDAL, PDAL, and all Python deps via pyproject.toml)
+2. Infrastructure: `.\deployments\local\setup.ps1` (generates credentials, starts PostgreSQL + MinIO containers, auto-detects conda env)
+3. API: `cd src/api/GeoChangeRisk.Api && dotnet run` (runs on localhost:5074, Swagger at `/swagger`, Hangfire at `/hangfire`)
+4. Pipeline: `python -m georisk <command>` (commands: `search`, `check`, `process`, `fetch`, `status`, `health`, `model upload/download/list`)
+5. Web UI: `cd src/web-ui && npm install && npm run dev` (runs on localhost:5173)
+
+Python dependencies are managed in `src/pipeline/pyproject.toml` with optional groups: `[ml]` (PyTorch), `[training]` (ML training extras), `[mlops]` (MLflow), `[lidar]` (empty — PDAL via conda), `[scripts]` (AOI data download), `[dev]` (testing/linting), `[all]` (everything). The `environment.yml` at the repo root installs `[all]` plus conda-only native libraries (GDAL, PDAL). Without conda, use `pip install -e "./src/pipeline[ml,dev]"` (no LIDAR support).
 
 Credentials are generated into `infra/local/.env` (gitignored) and shared across components.
 
