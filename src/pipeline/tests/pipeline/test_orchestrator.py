@@ -2,10 +2,9 @@
 
 import pytest
 
-from georisk.pipeline.step import PipelineStep, StepResult, ErrorPolicy
-from georisk.pipeline.orchestrator import PipelineOrchestrator, PipelineError
 from georisk.pipeline.context import StepContext
-
+from georisk.pipeline.orchestrator import PipelineError, PipelineOrchestrator
+from georisk.pipeline.step import ErrorPolicy, PipelineStep, StepResult
 
 # --- Dummy step classes for testing ---
 
