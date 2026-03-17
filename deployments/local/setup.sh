@@ -203,6 +203,36 @@ generate_app_configs() {
     minio_pass=$(grep "^MINIO_ROOT_PASSWORD=" "$ENV_PATH" | cut -d'=' -f2)
     minio_port=$(grep "^MINIO_API_PORT=" "$ENV_PATH" | cut -d'=' -f2)
 
+    # Detect Python executable: prefer conda 'georisk' env, fall back to .venv, then system python
+    local python_exe=""
+    # Check for conda 'georisk' environment
+    if command_exists conda; then
+        local conda_env_path
+        conda_env_path=$(conda info --envs 2>/dev/null | grep "georisk" | awk '{for(i=1;i<=NF;i++) if($i ~ /^\//) print $i}')
+        if [ -n "$conda_env_path" ] && [ -x "$conda_env_path/bin/python" ]; then
+            python_exe="$conda_env_path/bin/python"
+            success "Detected conda 'georisk' environment: $python_exe"
+        fi
+    fi
+    # Fall back to .venv
+    if [ -z "$python_exe" ] && [ -x "$REPO_ROOT/src/pipeline/.venv/bin/python" ]; then
+        python_exe="$REPO_ROOT/src/pipeline/.venv/bin/python"
+        success "Detected .venv: $python_exe"
+    fi
+    # Fall back to system python
+    if [ -z "$python_exe" ]; then
+        if command_exists python3; then
+            python_exe=$(which python3)
+            warn "Using system Python: $python_exe (recommend: conda env create -f environment.yml)"
+        elif command_exists python; then
+            python_exe=$(which python)
+            warn "Using system Python: $python_exe (recommend: conda env create -f environment.yml)"
+        else
+            python_exe="python3"
+            warn "Python not found. Create the conda environment: conda env create -f environment.yml"
+        fi
+    fi
+
     # Generate appsettings.Development.json for .NET API
     local appsettings_path="$REPO_ROOT/src/api/GeoChangeRisk.Api/appsettings.Development.json"
     if [ ! -f "$appsettings_path" ]; then
@@ -223,7 +253,7 @@ generate_app_configs() {
     "SecretKey": "${minio_pass}"
   },
   "Python": {
-    "Executable": "${REPO_ROOT}/src/pipeline/.venv/bin/python",
+    "Executable": "${python_exe}",
     "PipelineDir": "${REPO_ROOT}/src/pipeline"
   }
 }

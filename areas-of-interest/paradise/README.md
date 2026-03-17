@@ -38,17 +38,14 @@ This AOI covers the area affected by the 2018 Camp Fire, the deadliest and most 
 ### Setup
 
 ```bash
-# Create virtual environment
+# Option A: Use the repo's conda environment (recommended)
+conda activate georisk
+
+# Option B: Use a standalone virtual environment
 python -m venv .venv
-
-# Activate (Windows PowerShell)
-.\.venv\Scripts\Activate.ps1
-
-# Activate (Linux/Mac)
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+.\.venv\Scripts\Activate.ps1          # Windows PowerShell
+# source .venv/bin/activate            # Linux/Mac
+pip install -e "../../src/pipeline[scripts]"
 ```
 
 ### Download Assets

@@ -15,23 +15,23 @@ The Python raster pipeline (`src/pipeline/`) executes change detection and risk 
 - Searches the STAC catalog (Microsoft Planetary Computer) for a before/after Sentinel-2 scene pair matching the target dates within a configurable search window, using `pystac-client` for catalog queries and the `planetary-computer` library to sign asset URLs for download access
 - Updates the processing run with the resolved scene IDs
 
-### Step 1b — RGB Composites
+### Step 2 — RGB Composites
 
 - Creates true-color RGB GeoTIFF and PNG from each scene for the web UI's before/after comparison (Sentinel-2 raw data is delivered as individual spectral bands with scientific reflectance values, not display-ready images, so an RGB composite must be assembled and brightness-adjusted)
 - Uploads both to object storage (MinIO locally, S3 in AWS) with georeferencing bounds sidecar files
 
-### Step 2 — Calculate NDVI
+### Step 3 — Calculate NDVI
 
 - Downloads the Red (B04) and NIR (B08) bands for each scene
 - Computes NDVI = (NIR - Red) / (NIR + Red) for both before and after scenes
 
-### Step 3 — Detect Changes
+### Step 4 — Detect Changes
 
 - Diffs the two NDVI rasters to find areas where vegetation dropped significantly
 - Vectorizes the change raster into polygons using `rasterio.features.shapes` to trace contiguous pixel regions, `shapely` to create polygon objects, and `pyproj` to reproject from the raster's native CRS to WGS84
 - Output: a list of `ChangePolygon` objects with geometry, NDVI drop statistics, and area
 
-### Step 3b — Terrain Analysis (optional)
+### Step 5 — Terrain Analysis (optional)
 
 Disabled with `--skip-terrain` or `--dem-source none`.
 
@@ -39,7 +39,7 @@ Disabled with `--skip-terrain` or `--dem-source none`.
 - Calculates slope and aspect from the DEM
 - Enriches each change polygon with: mean slope, max slope, aspect, and elevation
 
-### Step 3c — Land Cover Classification (optional)
+### Step 6 — Land Cover Classification (optional)
 
 Disabled with `--skip-landcover`. Requires ML dependencies (`pip install -e ".[ml]"`).
 
@@ -50,9 +50,9 @@ Disabled with `--skip-landcover`. Requires ML dependencies (`pip install -e ".[m
 
 See [Land Cover Classification (EuroSAT)](#land-cover-classification-eurosat) below for details.
 
-### Step 3d — Landslide Detection (optional)
+### Step 7 — Landslide Detection (optional)
 
-Disabled with `--skip-landslide`. Requires ML dependencies and terrain data from step 3b (skipped automatically if no DEM is available).
+Disabled with `--skip-landslide`. Requires ML dependencies and terrain data from step 5 (skipped automatically if no DEM is available).
 
 - Loads 12 Sentinel-2 bands from the *before* scene (excludes B8A, which is spectrally redundant with B08 at lower resolution — the Landslide4Sense training dataset omits it)
 - Loads the custom-trained U-Net landslide model from local cache or object storage
@@ -61,12 +61,12 @@ Disabled with `--skip-landslide`. Requires ML dependencies and terrain data from
 
 See [Landslide Detection (U-Net)](#landslide-detection-u-net) below for details.
 
-### Save Change Polygons
+### Step 8 — Save Change Polygons
 
 - POSTs all change polygons (with terrain, land cover, and landslide enrichments) to the .NET API
 - Captures the created polygon IDs for linking to risk events in the next step
 
-### Step 4 — Risk Scoring
+### Step 9 — Risk Scoring
 
 - Fetches all registered assets (power lines, substations, hospitals, schools, etc.) for the AOI from the API
 - For each change polygon, finds assets within proximity distance (default 1000m)
@@ -82,7 +82,15 @@ See [Landslide Detection (U-Net)](#landslide-detection-u-net) below for details.
   - Asset criticality (0.5x-2.0x) — weights by asset importance
 - POSTs all risk events to the .NET API
 
-### Step 5 — Complete
+### Step 10 — LIDAR Terrain (optional)
+
+Disabled with `--skip-lidar`. Requires PDAL (`pip install -e ".[lidar]"`, or conda). Only runs for polygons classified as LandslideDebris.
+
+- For each landslide polygon, searches USGS 3DEP LIDAR COPC point clouds via Planetary Computer STAC
+- Processes point clouds through PDAL pipelines to generate 1m resolution DTM, DSM, and CHM GeoTIFFs
+- Uploads terrain products and metadata to object storage (`georisk-lidar` bucket)
+
+### Step 11 — Complete
 
 - Marks the processing run as `Completed` with summary metadata (polygon count, risk event count, detection stats, which ML models were used)
 - Prints a summary highlighting high/critical risk events

@@ -65,16 +65,20 @@ builder.Services.AddHangfire(configuration => configuration
 // Add Hangfire server (processes background jobs)
 builder.Services.AddHangfireServer();
 
-// Configure CORS — always allow any origin when deployed to AWS (behind CloudFront)
-var isAwsDeployment = builder.Configuration["Storage:Provider"] == "s3";
+// Configure CORS — origins must be explicitly configured via Cors:AllowedOrigins
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? ["http://localhost:5173"];
+
+if (corsOrigins.Any(o => o == "*"))
+{
+    Console.WriteLine("WARNING: CORS is configured with wildcard origin (*). This is not recommended for production.");
+}
 
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        if (isAwsDeployment || corsOrigins.Any(o => o == "*"))
+        if (corsOrigins.Any(o => o == "*"))
         {
             policy.AllowAnyOrigin()
                 .AllowAnyMethod()

@@ -4,17 +4,25 @@
 
 - Docker Desktop
 - .NET 8 SDK
-- Python 3.11+
+- [Conda](https://docs.conda.io/en/latest/miniconda.html) (Miniconda or Anaconda)
 - Node.js 18+
 
 ## Quick Start
 
-**Windows (PowerShell):**
+**1. Create the Python environment:**
+```bash
+conda env create -f environment.yml
+conda activate georisk
+```
+
+**2. Start infrastructure:**
+
+Windows (PowerShell):
 ```powershell
 .\deployments\local\setup.ps1
 ```
 
-**Linux/Mac:**
+Linux/Mac:
 ```bash
 chmod +x deployments/local/setup.sh
 ./deployments/local/setup.sh
@@ -31,8 +39,9 @@ Credentials are stored in `infra/local/.env` (gitignored).
 ## Initialize Sample Data (Paradise, CA)
 
 ```bash
+# Ensure conda environment is active (or install deps: pip install -e "./src/pipeline[scripts]")
+conda activate georisk
 cd areas-of-interest/paradise
-pip install -r requirements.txt
 python download-assets.py
 python initialize.py
 ```
@@ -56,9 +65,8 @@ Open http://localhost:5173 to view the application.
 ## Run Change Detection
 
 ```bash
-cd src/pipeline
-pip install -e ".[ml]"   # includes ML land cover classification
-# Or: pip install -e .   # base pipeline without ML
+# Ensure conda environment is active
+conda activate georisk
 
 # Search for available imagery
 python -m georisk search --aoi-id paradise-ca --date-range 2018-01-01/2018-12-31

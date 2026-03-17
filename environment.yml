@@ -1,0 +1,23 @@
+# Conda environment for local development
+# Creates the 'georisk' environment with native C++ libraries (GDAL, PDAL)
+# and delegates all Python packages to pyproject.toml via pip.
+#
+# Usage:
+#   conda env create -f environment.yml
+#   conda activate georisk
+#
+# To update after changes:
+#   conda env update -f environment.yml --prune
+
+name: georisk
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - gdal>=3.8
+  - pdal>=2.6
+  - python-pdal>=3.3
+  - pip
+  - pip:
+    - -e "./src/pipeline[all]"

@@ -331,24 +331,26 @@ geo-change-risk/
 
 ## Getting Started
 
-Prerequisites: Docker Desktop, .NET 8 SDK, Python 3.11+, Node.js 18+
+Prerequisites: Docker Desktop, .NET 8 SDK, [Conda](https://docs.conda.io/en/latest/miniconda.html) (Miniconda or Anaconda), Node.js 18+
 
 ```powershell
-# 1. Start infrastructure (generates credentials, starts PostgreSQL + MinIO + Ollama)
+# 1. Create Python environment (installs GDAL, PDAL, and all Python dependencies)
+conda env create -f environment.yml
+conda activate georisk
+
+# 2. Start infrastructure (generates credentials, starts PostgreSQL + MinIO + Ollama)
 .\deployments\local\setup.ps1
 
-# 2. Start API
+# 3. Start API
 cd src/api/GeoChangeRisk.Api
 dotnet run
-
-# 3. Install Python pipeline
-cd src/pipeline
-pip install -e .             # Base install (add ".[ml]" for ML classification, ".[lidar]" for LIDAR)
 
 # 4. Start Web UI (in another terminal)
 cd src/web-ui
 npm install && npm run dev
 ```
+
+The `environment.yml` installs the pipeline in editable mode with all optional dependencies (ML, MLOps, LIDAR, dev tools). To install without conda (no LIDAR support), use `pip install -e "./src/pipeline[ml,dev]"` in a Python 3.11+ virtual environment.
 
 Open http://localhost:5173. See [docs/getting-started.md](docs/getting-started.md) for full instructions including sample data initialization and running change detection.
 
